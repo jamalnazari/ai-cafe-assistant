@@ -1,26 +1,36 @@
 import asyncio
+from sqlalchemy import select
 from app.db.session import engine, Base, AsyncSessionLocal
 from app.models.restaurant import RestaurantModel
 from app.models.menu import MenuItemModel
+from app.models.user import UserModel
+from app.core.security import hash_password
 
 
 async def init_db():
-    print("در حال ساخت جدول‌های دیتابیس در SQLite...")
+    print("در حال به‌روزرسانی جدول‌ها در SQLite...")
     async with engine.begin() as conn:
-        # ساخت جدول‌ها
         await conn.run_sync(Base.metadata.create_all)
 
     async with AsyncSessionLocal() as session:
-        # بررسی اینکه آیا کافه اولیه وجود دارد یا نه
-        from sqlalchemy import select
+        # ساخت کاربر اولیه صاحب کافه
+        user_result = await session.execute(
+            select(UserModel).where(UserModel.email == "owner@cafe.com")
+        )
+        if not user_result.scalar_one_or_none():
+            owner_user = UserModel(
+                email="owner@cafe.com",
+                password_hash=hash_password("123456"),
+                is_owner=True,
+            )
+            session.add(owner_user)
+            print("کاربر صاحب کافه ساخته شد (ایمیل: owner@cafe.com | رمز: 123456)")
 
-        result = await session.execute(
+        # ساخت کافه اولیه
+        restaurant_result = await session.execute(
             select(RestaurantModel).where(RestaurantModel.slug == "demo")
         )
-        existing_restaurant = result.scalar_one_or_none()
-
-        if not existing_restaurant:
-            print("در حال اضافه کردن داده‌های اولیهٔ کافه...")
+        if not restaurant_result.scalar_one_or_none():
             demo_restaurant = RestaurantModel(
                 slug="demo",
                 name="کافهٔ آزمایشی",
@@ -64,10 +74,9 @@ async def init_db():
                 ],
             )
             session.add(demo_restaurant)
-            await session.commit()
-            print("داده‌های اولیه با موفقیت ذخیره شدند.")
-        else:
-            print("داده‌های اولیه قبلاً موجود بودند.")
+            print("داده‌های اولیه کافه اضافه شد.")
+
+        await session.commit()
 
 
 if __name__ == "__main__":

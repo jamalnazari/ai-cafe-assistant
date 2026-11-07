@@ -29,3 +29,15 @@ class RestaurantMenu(BaseModel):
     restaurant_slug: str
     restaurant_name: str
     items: list[MenuItem]
+
+class MenuItemCreate(BaseModel):
+    item_key: str
+    name: str
+    category: str
+    description: str
+    price_amount: int  # قیمت به ریال (مثلا 1450000)
+    ingredients: list[str] | None = None
+    allergens: list[str] | None = None
+    is_spicy: bool = False
+    serving_temperature: Literal["hot", "cold", "room_temperature"] | None = None
+    is_available: bool = True
