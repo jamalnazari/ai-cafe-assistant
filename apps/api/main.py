@@ -27,7 +27,7 @@ from app.core.auth import (
 )
 from app.repositories.menu_repository import SqlAlchemyMenuRepository
 from app.schemas.auth import LoginRequest, LoginResponse, OwnerResponse
-from app.schemas.menu import RestaurantMenu, MenuItemCreate
+from app.schemas.menu import MenuItemCreate, MenuItemUpdate, RestaurantMenu
 from app.services.assistant_service import AssistantService
 from app.services.menu_image_service import menu_image_service
 
@@ -151,6 +151,37 @@ async def create_menu_item(
     db.add(new_item)
     await db.commit()
     return {"message": "آیتم جدید با موفقیت اضافه شد."}
+
+
+# --- ویرایش اطلاعات آیتم توسط مالک ---
+@app.patch("/api/v1/restaurants/{restaurant_slug}/items/{item_key}")
+async def update_menu_item(
+    restaurant_slug: str,
+    item_key: str,
+    item_data: MenuItemUpdate,
+    db: AsyncSession = Depends(get_db),
+    _current_owner: UserModel = Depends(get_current_owner),
+) -> dict[str, str]:
+    result = await db.execute(
+        select(MenuItemModel)
+        .join(RestaurantModel)
+        .where(
+            RestaurantModel.slug == restaurant_slug,
+            MenuItemModel.item_key == item_key,
+        )
+    )
+    target_item = result.scalar_one_or_none()
+    if target_item is None:
+        raise HTTPException(status_code=404, detail="آیتم یافت نشد.")
+
+    updates = item_data.model_dump(exclude_unset=True, exclude_none=True)
+    if not updates:
+        raise HTTPException(status_code=400, detail="فیلدی برای ویرایش ارسال نشده است.")
+
+    for field_name, value in updates.items():
+        setattr(target_item, field_name, value)
+    await db.commit()
+    return {"message": "آیتم با موفقیت ویرایش شد."}
 
 
 # --- افزودن یا تعویض تصویر آیتم توسط مالک ---

@@ -4,6 +4,7 @@ export interface MenuItem {
   category: string;
   description: string;
   image_url?: string | null;
+  is_spicy?: boolean | null;
   price?: { amount: number; currency: string } | null;
 }
 

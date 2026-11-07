@@ -71,6 +71,8 @@ def auth_context(tmp_path, monkeypatch) -> AuthTestContext:
                                 name="لاته",
                                 category="نوشیدنی گرم",
                                 description="اسپرسو و شیر",
+                                ingredients=["اسپرسو", "شیر"],
+                                allergens=["شیر"],
                                 price_amount=1450000,
                                 price_currency="IRR",
                             )
@@ -121,9 +123,13 @@ def test_menu_mutations_require_authentication(auth_context: AuthTestContext):
         "/api/v1/restaurants/demo/items", json=new_item_payload()
     )
     delete_response = client.delete("/api/v1/restaurants/demo/items/latte")
+    update_response = client.patch(
+        "/api/v1/restaurants/demo/items/latte", json={"name": "لاته ویژه"}
+    )
 
     assert create_response.status_code == 401
     assert delete_response.status_code == 401
+    assert update_response.status_code == 401
     assert "نشست" in create_response.json()["detail"]
     menu_response = client.get("/api/v1/restaurants/demo/menu")
     assert [item["id"] for item in menu_response.json()["items"]] == ["latte"]
@@ -298,3 +304,38 @@ def test_invalid_menu_item_image_is_rejected(auth_context: AuthTestContext):
 
     assert response.status_code == 415
     assert "تصویر معتبر" in response.json()["detail"]
+
+
+def test_owner_can_update_item_and_preserve_unsent_fields(
+    auth_context: AuthTestContext,
+):
+    client = auth_context.client
+    assert login(client).status_code == 200
+    image_response = client.post(
+        "/api/v1/restaurants/demo/items/latte/image",
+        files={"file": ("latte.png", PNG_IMAGE, "image/png")},
+    )
+    image_url = image_response.json()["image_url"]
+
+    response = client.patch(
+        "/api/v1/restaurants/demo/items/latte",
+        json={
+            "name": "لاته ویژه",
+            "category": "نوشیدنی ویژه",
+            "description": "اسپرسو و شیر بخار داده‌شده",
+            "price_amount": 1750000,
+            "is_spicy": False,
+        },
+    )
+
+    assert response.status_code == 200
+    menu = client.get("/api/v1/restaurants/demo/menu").json()
+    latte = next(item for item in menu["items"] if item["id"] == "latte")
+    assert latte["name"] == "لاته ویژه"
+    assert latte["category"] == "نوشیدنی ویژه"
+    assert latte["description"] == "اسپرسو و شیر بخار داده‌شده"
+    assert latte["price"]["amount"] == 1750000
+    assert latte["image_url"] == image_url
+    assert latte["ingredients"] == ["اسپرسو", "شیر"]
+    assert latte["allergens"] == ["شیر"]
+    assert latte["is_available"] is True

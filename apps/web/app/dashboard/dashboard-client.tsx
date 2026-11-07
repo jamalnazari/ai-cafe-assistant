@@ -8,11 +8,12 @@ import {
   Coffee,
   Image as ImageIcon,
   LogOut,
+  Pencil,
   Plus,
   QrCode,
   Trash2,
 } from "lucide-react";
-import type { RestaurantMenu } from "./dashboard-types";
+import type { MenuItem, RestaurantMenu } from "./dashboard-types";
 
 const MAX_IMAGE_BYTES = 5 * 1024 * 1024;
 const ALLOWED_IMAGE_TYPES = ["image/jpeg", "image/png", "image/webp"];
@@ -52,6 +53,7 @@ export default function DashboardClient({
     initialMenu ? null : "دریافت منو ناموفق بود؛ لطفاً دوباره تلاش کنید."
   );
   const [showAddModal, setShowAddModal] = useState(false);
+  const [editingItemKey, setEditingItemKey] = useState<string | null>(null);
   const [formError, setFormError] = useState<string | null>(null);
   const [saving, setSaving] = useState(false);
   const [deletingItemKey, setDeletingItemKey] = useState<string | null>(null);
@@ -120,7 +122,9 @@ export default function DashboardClient({
   );
 
   const resetForm = () => {
+    setEditingItemKey(null);
     setName("");
+    setCategory("نوشیدنی گرم");
     setDescription("");
     setPriceToman("");
     setIsSpicy(false);
@@ -130,8 +134,26 @@ export default function DashboardClient({
 
   const closeAddModal = () => {
     setShowAddModal(false);
+    setEditingItemKey(null);
     setImageFile(null);
     setFormError(null);
+  };
+
+  const openCreateModal = () => {
+    resetForm();
+    setShowAddModal(true);
+  };
+
+  const openEditModal = (item: MenuItem) => {
+    setEditingItemKey(item.id);
+    setName(item.name);
+    setCategory(item.category);
+    setDescription(item.description);
+    setPriceToman(item.price ? String(item.price.amount / 10) : "");
+    setIsSpicy(item.is_spicy ?? false);
+    setImageFile(null);
+    setFormError(null);
+    setShowAddModal(true);
   };
 
   const handleSelectNewImage = (event: React.ChangeEvent<HTMLInputElement>) => {
@@ -153,41 +175,50 @@ export default function DashboardClient({
     setImageFile(file);
   };
 
-  const handleAddItem = async (event: React.FormEvent) => {
+  const handleSubmitItem = async (event: React.FormEvent) => {
     event.preventDefault();
     if (!name || !priceToman || saving) return;
 
     setSaving(true);
     setActionError(null);
     setFormError(null);
+    const isEditing = editingItemKey !== null;
     const priceRial = Number.parseInt(priceToman, 10) * 10;
-    const itemKey = `item-${Date.now()}`;
+    const itemKey = editingItemKey ?? `item-${Date.now()}`;
     const selectedImage = imageFile;
-    let itemCreated = false;
+    let itemSaved = false;
 
     try {
-      const response = await fetch("/api/v1/restaurants/demo/items", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        credentials: "same-origin",
-        body: JSON.stringify({
-          item_key: itemKey,
-          name,
-          category,
-          description,
-          price_amount: priceRial,
-          is_spicy: isSpicy,
-        }),
-      });
+      const response = await fetch(
+        isEditing
+          ? `/api/v1/restaurants/demo/items/${encodeURIComponent(itemKey)}`
+          : "/api/v1/restaurants/demo/items",
+        {
+          method: isEditing ? "PATCH" : "POST",
+          headers: { "Content-Type": "application/json" },
+          credentials: "same-origin",
+          body: JSON.stringify({
+            ...(isEditing ? {} : { item_key: itemKey }),
+            name,
+            category,
+            description,
+            price_amount: priceRial,
+            is_spicy: isSpicy,
+          }),
+        }
+      );
 
       if (handleExpiredSession(response)) return;
       if (!response.ok) {
         throw new Error(
-          await getResponseError(response, "افزودن آیتم ناموفق بود.")
+          await getResponseError(
+            response,
+            isEditing ? "ویرایش آیتم ناموفق بود." : "افزودن آیتم ناموفق بود."
+          )
         );
       }
 
-      itemCreated = true;
+      itemSaved = true;
       setShowAddModal(false);
       resetForm();
 
@@ -200,16 +231,18 @@ export default function DashboardClient({
           const reason =
             error instanceof Error ? error.message : "بارگذاری تصویر ناموفق بود.";
           throw new Error(
-            `آیتم ذخیره شد، اما تصویر بارگذاری نشد. ${reason} می‌توانید از ردیف آیتم دوباره تلاش کنید.`
+            `${isEditing ? "تغییرات" : "آیتم"} ذخیره شد، اما تصویر بارگذاری نشد. ${reason} می‌توانید از ردیف آیتم دوباره تلاش کنید.`
           );
         }
       }
 
       await fetchMenu();
     } catch (error) {
-      const message =
-        error instanceof Error ? error.message : "افزودن آیتم ناموفق بود.";
-      if (itemCreated) {
+      const fallback = isEditing
+        ? "ویرایش آیتم ناموفق بود."
+        : "افزودن آیتم ناموفق بود.";
+      const message = error instanceof Error ? error.message : fallback;
+      if (itemSaved) {
         setActionError(message);
       } else {
         setFormError(message);
@@ -310,10 +343,7 @@ export default function DashboardClient({
           </div>
           <div className="flex items-center gap-2">
             <button
-              onClick={() => {
-                setFormError(null);
-                setShowAddModal(true);
-              }}
+              onClick={openCreateModal}
               className="bg-amber-800 hover:bg-amber-900 text-white text-xs font-bold px-4 py-3 rounded-2xl flex items-center gap-1.5 transition-colors shadow-sm"
             >
               <Plus className="w-4 h-4" />
@@ -442,15 +472,26 @@ export default function DashboardClient({
                         }}
                       />
                     </label>
-                    <button
-                      onClick={() => handleDeleteItem(item.id)}
-                      disabled={deletingItemKey === item.id}
-                      className="p-2 shrink-0 text-red-500 hover:bg-red-50 rounded-xl transition-colors disabled:opacity-40"
-                      title="حذف آیتم"
-                      aria-label={`حذف ${item.name}`}
-                    >
-                      <Trash2 className="w-4 h-4" />
-                    </button>
+                    <div className="flex items-center gap-1">
+                      <button
+                        type="button"
+                        onClick={() => openEditModal(item)}
+                        className="px-3 py-2 shrink-0 text-slate-600 hover:bg-slate-200/70 rounded-xl transition-colors flex items-center gap-1.5 text-xs font-bold"
+                        title="ویرایش آیتم"
+                      >
+                        <Pencil className="w-4 h-4" />
+                        <span>ویرایش</span>
+                      </button>
+                      <button
+                        onClick={() => handleDeleteItem(item.id)}
+                        disabled={deletingItemKey === item.id}
+                        className="p-2 shrink-0 text-red-500 hover:bg-red-50 rounded-xl transition-colors disabled:opacity-40"
+                        title="حذف آیتم"
+                        aria-label={`حذف ${item.name}`}
+                      >
+                        <Trash2 className="w-4 h-4" />
+                      </button>
+                    </div>
                   </div>
                 </div>
               ))}
@@ -464,13 +505,13 @@ export default function DashboardClient({
           <div
             role="dialog"
             aria-modal="true"
-            aria-labelledby="add-item-title"
+            aria-labelledby="item-form-title"
             className="bg-white w-full max-w-md max-h-[90svh] overflow-y-auto p-6 rounded-3xl shadow-lg space-y-4"
           >
-            <h3 id="add-item-title" className="font-bold text-sm text-slate-800">
-              افزودن آیتم جدید به منو
+            <h3 id="item-form-title" className="font-bold text-sm text-slate-800">
+              {editingItemKey ? "ویرایش آیتم" : "افزودن آیتم جدید به منو"}
             </h3>
-            <form onSubmit={handleAddItem} className="space-y-3">
+            <form onSubmit={handleSubmitItem} className="space-y-3">
               <input
                 type="text"
                 aria-label="نام غذا یا نوشیدنی"
@@ -515,7 +556,9 @@ export default function DashboardClient({
                   htmlFor="new-item-image"
                   className="text-xs font-bold text-slate-700"
                 >
-                  تصویر آیتم (اختیاری)
+                  {editingItemKey
+                    ? "تعویض تصویر (اختیاری)"
+                    : "تصویر آیتم (اختیاری)"}
                 </label>
                 <input
                   id="new-item-image"
@@ -553,7 +596,11 @@ export default function DashboardClient({
                   disabled={saving}
                   className="flex-1 bg-amber-800 hover:bg-amber-900 text-white font-bold py-2.5 rounded-xl text-xs disabled:opacity-50"
                 >
-                  {saving ? "در حال ذخیره..." : "ذخیره آیتم"}
+                  {saving
+                    ? "در حال ذخیره..."
+                    : editingItemKey
+                      ? "ذخیره تغییرات"
+                      : "ذخیره آیتم"}
                 </button>
                 <button
                   type="button"

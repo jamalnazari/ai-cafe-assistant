@@ -19,15 +19,16 @@ class MockSTTProvider:
 class OpenAICompatibleSTTProvider:
     """حالت واقعی: اتصال به OpenAI یا سرویس‌های ایرانی (مثل AvalAI/Metis)"""
 
-    def __init__(self, base_url: str, api_key: str) -> None:
+    def __init__(self, base_url: str, api_key: str, model: str) -> None:
         self.base_url = base_url.rstrip("/")
         self.api_key = api_key
+        self.model = model
 
     async def transcribe(self, audio_bytes: bytes, filename: str) -> str:
         async with httpx.AsyncClient(timeout=30.0) as client:
             headers = {"Authorization": f"Bearer {self.api_key}"}
             files = {"file": (filename, audio_bytes, "audio/webm")}
-            data = {"model": "whisper-1", "language": "fa"}
+            data = {"model": self.model, "language": "fa"}
 
             response = await client.post(
                 f"{self.base_url}/audio/transcriptions",
@@ -46,4 +47,5 @@ def get_stt_provider() -> STTProvider:
     return OpenAICompatibleSTTProvider(
         base_url=settings.AI_BASE_URL,
         api_key=settings.AI_API_KEY,
+        model=settings.STT_MODEL,
     )

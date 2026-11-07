@@ -20,9 +20,10 @@ class MockLLMProvider:
 class OpenAICompatibleLLMProvider:
     """حالت واقعی: استفاده از GPT-4o-mini یا مدل‌های مشابه"""
 
-    def __init__(self, base_url: str, api_key: str) -> None:
+    def __init__(self, base_url: str, api_key: str, model: str) -> None:
         self.base_url = base_url.rstrip("/")
         self.api_key = api_key
+        self.model = model
 
     async def generate_response(self, system_prompt: str, user_question: str) -> str:
         async with httpx.AsyncClient(timeout=30.0) as client:
@@ -31,7 +32,7 @@ class OpenAICompatibleLLMProvider:
                 "Content-Type": "application/json",
             }
             payload = {
-                "model": "gpt-4o-mini",
+                "model": self.model,
                 "messages": [
                     {"role": "system", "content": system_prompt},
                     {"role": "user", "content": user_question},
@@ -55,4 +56,5 @@ def get_llm_provider() -> LLMProvider:
     return OpenAICompatibleLLMProvider(
         base_url=settings.AI_BASE_URL,
         api_key=settings.AI_API_KEY,
+        model=settings.LLM_MODEL,
     )

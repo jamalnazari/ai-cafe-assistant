@@ -42,3 +42,17 @@ class MenuItemCreate(BaseModel):
     is_spicy: bool = False
     serving_temperature: Literal["hot", "cold", "room_temperature"] | None = None
     is_available: bool = True
+
+
+class MenuItemUpdate(BaseModel):
+    """همه فیلدها اختیاری‌اند تا فیلدهای ثبت‌نشده در فرم حذف نشوند."""
+
+    name: str | None = None
+    category: str | None = None
+    description: str | None = None
+    price_amount: int | None = None
+    ingredients: list[str] | None = None
+    allergens: list[str] | None = None
+    is_spicy: bool | None = None
+    serving_temperature: Literal["hot", "cold", "room_temperature"] | None = None
+    is_available: bool | None = None

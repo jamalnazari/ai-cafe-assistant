@@ -29,9 +29,11 @@ class Settings(BaseSettings):
     LLM_PROVIDER: str = "mock"
     AI_BASE_URL: str = "https://api.openai.com/v1"
     AI_API_KEY: str = "mock-key"
+    STT_MODEL: str = "whisper-1"
+    LLM_MODEL: str = "gpt-4o-mini"
 
     model_config = SettingsConfigDict(
-        env_file=str(BASE_DIR / ".env"),
+        env_file=(str(BASE_DIR / ".env"), str(API_DIR / ".env")),
         env_file_encoding="utf-8",
         extra="ignore",
     )
