@@ -1,11 +1,38 @@
 import asyncio
 from sqlalchemy import inspect, select, text
+from sqlalchemy.ext.asyncio import AsyncSession
 from app.db.session import engine, Base, AsyncSessionLocal
 from app.models.restaurant import RestaurantModel
 from app.models.menu import MenuItemModel
+from app.models.menu_category import MenuCategoryModel
 from app.models.user import UserModel
 from app.models.auth_session import AuthSessionModel  # noqa: F401 - ثبت مدل در metadata
 from app.core.security import hash_password
+
+
+async def backfill_menu_categories(session: AsyncSession) -> None:
+    """ساخت دسته‌های موجود در دیتابیس‌های قدیمی بدون تکرار."""
+    item_categories = (
+        await session.execute(
+            select(MenuItemModel.restaurant_id, MenuItemModel.category).distinct()
+        )
+    ).all()
+    existing_categories = set(
+        (
+            await session.execute(
+                select(MenuCategoryModel.restaurant_id, MenuCategoryModel.name)
+            )
+        ).all()
+    )
+
+    for restaurant_id, item_category in item_categories:
+        category_name = item_category.strip()
+        category_key = (restaurant_id, category_name)
+        if category_name and category_key not in existing_categories:
+            session.add(
+                MenuCategoryModel(restaurant_id=restaurant_id, name=category_name)
+            )
+            existing_categories.add(category_key)
 
 
 async def init_db():
@@ -46,6 +73,12 @@ async def init_db():
             demo_restaurant = RestaurantModel(
                 slug="demo",
                 name="کافهٔ آزمایشی",
+                categories=[
+                    MenuCategoryModel(name="نوشیدنی گرم"),
+                    MenuCategoryModel(name="نوشیدنی سرد"),
+                    MenuCategoryModel(name="غذای گرم"),
+                    MenuCategoryModel(name="دسر"),
+                ],
                 items=[
                     MenuItemModel(
                         item_key="latte",
@@ -88,6 +121,8 @@ async def init_db():
             session.add(demo_restaurant)
             print("داده‌های اولیه کافه اضافه شد.")
 
+        await session.flush()
+        await backfill_menu_categories(session)
         await session.commit()
 
 

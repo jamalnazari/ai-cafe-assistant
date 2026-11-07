@@ -6,11 +6,13 @@ import { useRouter } from "next/navigation";
 import { QRCodeSVG } from "qrcode.react";
 import {
   Coffee,
+  FolderPlus,
   Image as ImageIcon,
   LogOut,
   Pencil,
   Plus,
   QrCode,
+  Tags,
   Trash2,
 } from "lucide-react";
 import type { MenuItem, RestaurantMenu } from "./dashboard-types";
@@ -50,7 +52,7 @@ export default function DashboardClient({
   const router = useRouter();
   const [menu, setMenu] = useState<RestaurantMenu | null>(initialMenu);
   const [actionError, setActionError] = useState<string | null>(
-    initialMenu ? null : "دریافت منو ناموفق بود؛ لطفاً دوباره تلاش کنید."
+    initialMenu ? null : "دریافت منو ناموفق بود؛ لطفاً دوباره تلاش کنید.",
   );
   const [showAddModal, setShowAddModal] = useState(false);
   const [editingItemKey, setEditingItemKey] = useState<string | null>(null);
@@ -66,6 +68,19 @@ export default function DashboardClient({
   const [priceToman, setPriceToman] = useState("");
   const [isSpicy, setIsSpicy] = useState(false);
   const [imageFile, setImageFile] = useState<File | null>(null);
+  const [newCategoryName, setNewCategoryName] = useState("");
+  const [categorySaving, setCategorySaving] = useState(false);
+  const [categoryError, setCategoryError] = useState<string | null>(null);
+  const [categorySuccess, setCategorySuccess] = useState<string | null>(null);
+
+  const categoryNames = menu
+    ? Array.from(
+        new Set([
+          ...(menu.categories ?? []),
+          ...menu.items.map((item) => item.category),
+        ]),
+      )
+    : [];
 
   const fetchMenu = useCallback(async () => {
     try {
@@ -75,14 +90,14 @@ export default function DashboardClient({
       });
       if (!response.ok) {
         throw new Error(
-          await getResponseError(response, "دریافت منو ناموفق بود.")
+          await getResponseError(response, "دریافت منو ناموفق بود."),
         );
       }
       setMenu((await response.json()) as RestaurantMenu);
       setActionError(null);
     } catch (error) {
       setActionError(
-        error instanceof Error ? error.message : "دریافت منو ناموفق بود."
+        error instanceof Error ? error.message : "دریافت منو ناموفق بود.",
       );
     }
   }, []);
@@ -94,7 +109,7 @@ export default function DashboardClient({
       router.refresh();
       return true;
     },
-    [router]
+    [router],
   );
 
   const uploadImageRequest = useCallback(
@@ -107,24 +122,26 @@ export default function DashboardClient({
           method: "POST",
           body: formData,
           credentials: "same-origin",
-        }
+        },
       );
 
       if (handleExpiredSession(response)) return false;
       if (!response.ok) {
         throw new Error(
-          await getResponseError(response, "بارگذاری تصویر ناموفق بود.")
+          await getResponseError(response, "بارگذاری تصویر ناموفق بود."),
         );
       }
       return true;
     },
-    [handleExpiredSession]
+    [handleExpiredSession],
   );
 
   const resetForm = () => {
     setEditingItemKey(null);
     setName("");
-    setCategory("نوشیدنی گرم");
+    setCategory(
+      categoryNames.includes(category) ? category : (categoryNames[0] ?? ""),
+    );
     setDescription("");
     setPriceToman("");
     setIsSpicy(false);
@@ -175,9 +192,62 @@ export default function DashboardClient({
     setImageFile(file);
   };
 
+  const handleAddCategory = async (event: React.FormEvent) => {
+    event.preventDefault();
+    const categoryName = newCategoryName.trim();
+    if (!categoryName || categorySaving) return;
+
+    setCategorySaving(true);
+    setCategoryError(null);
+    setCategorySuccess(null);
+    try {
+      const response = await fetch("/api/v1/restaurants/demo/categories", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        credentials: "same-origin",
+        body: JSON.stringify({ name: categoryName }),
+      });
+      if (handleExpiredSession(response)) return;
+      if (!response.ok) {
+        throw new Error(
+          await getResponseError(response, "افزودن دسته‌بندی ناموفق بود."),
+        );
+      }
+
+      const savedCategory = (await response.json()) as { name: string };
+      setMenu((currentMenu) =>
+        currentMenu
+          ? {
+              ...currentMenu,
+              categories: Array.from(
+                new Set([
+                  ...(currentMenu.categories ?? []),
+                  savedCategory.name,
+                ]),
+              ),
+            }
+          : currentMenu,
+      );
+      setNewCategoryName("");
+      setCategory(savedCategory.name);
+      setCategorySuccess(`دسته‌بندی «${savedCategory.name}» اضافه شد.`);
+      await fetchMenu();
+    } catch (error) {
+      setCategoryError(
+        error instanceof Error ? error.message : "افزودن دسته‌بندی ناموفق بود.",
+      );
+    } finally {
+      setCategorySaving(false);
+    }
+  };
+
   const handleSubmitItem = async (event: React.FormEvent) => {
     event.preventDefault();
     if (!name || !priceToman || saving) return;
+    if (!category || !categoryNames.includes(category)) {
+      setFormError("لطفاً یک دسته‌بندی معتبر انتخاب کنید.");
+      return;
+    }
 
     setSaving(true);
     setActionError(null);
@@ -205,7 +275,7 @@ export default function DashboardClient({
             price_amount: priceRial,
             is_spicy: isSpicy,
           }),
-        }
+        },
       );
 
       if (handleExpiredSession(response)) return;
@@ -213,8 +283,8 @@ export default function DashboardClient({
         throw new Error(
           await getResponseError(
             response,
-            isEditing ? "ویرایش آیتم ناموفق بود." : "افزودن آیتم ناموفق بود."
-          )
+            isEditing ? "ویرایش آیتم ناموفق بود." : "افزودن آیتم ناموفق بود.",
+          ),
         );
       }
 
@@ -229,9 +299,11 @@ export default function DashboardClient({
         } catch (error) {
           await fetchMenu();
           const reason =
-            error instanceof Error ? error.message : "بارگذاری تصویر ناموفق بود.";
+            error instanceof Error
+              ? error.message
+              : "بارگذاری تصویر ناموفق بود.";
           throw new Error(
-            `${isEditing ? "تغییرات" : "آیتم"} ذخیره شد، اما تصویر بارگذاری نشد. ${reason} می‌توانید از ردیف آیتم دوباره تلاش کنید.`
+            `${isEditing ? "تغییرات" : "آیتم"} ذخیره شد، اما تصویر بارگذاری نشد. ${reason} می‌توانید از ردیف آیتم دوباره تلاش کنید.`,
           );
         }
       }
@@ -267,7 +339,7 @@ export default function DashboardClient({
       await fetchMenu();
     } catch (error) {
       setActionError(
-        error instanceof Error ? error.message : "بارگذاری تصویر ناموفق بود."
+        error instanceof Error ? error.message : "بارگذاری تصویر ناموفق بود.",
       );
     } finally {
       setUploadingItemKey(null);
@@ -282,19 +354,19 @@ export default function DashboardClient({
     try {
       const response = await fetch(
         `/api/v1/restaurants/demo/items/${encodeURIComponent(itemKey)}`,
-        { method: "DELETE", credentials: "same-origin" }
+        { method: "DELETE", credentials: "same-origin" },
       );
 
       if (handleExpiredSession(response)) return;
       if (!response.ok) {
         throw new Error(
-          await getResponseError(response, "حذف آیتم ناموفق بود.")
+          await getResponseError(response, "حذف آیتم ناموفق بود."),
         );
       }
       await fetchMenu();
     } catch (error) {
       setActionError(
-        error instanceof Error ? error.message : "حذف آیتم ناموفق بود."
+        error instanceof Error ? error.message : "حذف آیتم ناموفق بود.",
       );
     } finally {
       setDeletingItemKey(null);
@@ -318,7 +390,7 @@ export default function DashboardClient({
       router.refresh();
     } catch (error) {
       setActionError(
-        error instanceof Error ? error.message : "خروج از حساب ناموفق بود."
+        error instanceof Error ? error.message : "خروج از حساب ناموفق بود.",
       );
       setLoggingOut(false);
     }
@@ -344,7 +416,13 @@ export default function DashboardClient({
           <div className="flex items-center gap-2">
             <button
               onClick={openCreateModal}
-              className="bg-amber-800 hover:bg-amber-900 text-white text-xs font-bold px-4 py-3 rounded-2xl flex items-center gap-1.5 transition-colors shadow-sm"
+              disabled={categoryNames.length === 0}
+              title={
+                categoryNames.length === 0
+                  ? "ابتدا یک دسته‌بندی بسازید"
+                  : "افزودن آیتم جدید"
+              }
+              className="bg-amber-800 hover:bg-amber-900 text-white text-xs font-bold px-4 py-3 rounded-2xl flex items-center gap-1.5 transition-colors shadow-sm disabled:opacity-50"
             >
               <Plus className="w-4 h-4" />
               <span>افزودن آیتم جدید</span>
@@ -379,6 +457,73 @@ export default function DashboardClient({
           </div>
         )}
 
+        <section className="bg-white p-5 md:p-6 rounded-3xl shadow-sm border border-amber-100 space-y-4">
+          <div className="flex items-center gap-2 text-slate-800">
+            <Tags className="w-5 h-5 text-amber-800" />
+            <div>
+              <h2 className="font-bold text-sm">مدیریت دسته‌بندی‌ها</h2>
+              <p className="text-xs text-slate-500 mt-1">
+                ابتدا دسته‌بندی را بسازید؛ سپس هنگام افزودن یا ویرایش محصول آن
+                را انتخاب کنید.
+              </p>
+            </div>
+          </div>
+          <form
+            onSubmit={handleAddCategory}
+            className="flex flex-col sm:flex-row gap-2"
+          >
+            <input
+              type="text"
+              aria-label="نام دسته‌بندی جدید"
+              placeholder="نام دسته‌بندی جدید؛ مثلاً صبحانه"
+              value={newCategoryName}
+              onChange={(event) => {
+                setNewCategoryName(event.target.value);
+                setCategoryError(null);
+                setCategorySuccess(null);
+              }}
+              maxLength={50}
+              required
+              className="flex-1 bg-slate-50 border border-slate-200 rounded-xl p-3 text-xs text-slate-800 focus:outline-none focus:ring-2 focus:ring-amber-800/20"
+            />
+            <button
+              type="submit"
+              disabled={categorySaving || !newCategoryName.trim()}
+              className="bg-amber-800 hover:bg-amber-900 text-white text-xs font-bold px-4 py-3 rounded-xl flex items-center justify-center gap-1.5 transition-colors disabled:opacity-50"
+            >
+              <FolderPlus className="w-4 h-4" />
+              <span>
+                {categorySaving ? "در حال افزودن..." : "افزودن دسته‌بندی"}
+              </span>
+            </button>
+          </form>
+          {categoryNames.length > 0 && (
+            <div
+              className="flex flex-wrap gap-2"
+              aria-label="دسته‌بندی‌های موجود"
+            >
+              {categoryNames.map((categoryName) => (
+                <span
+                  key={categoryName}
+                  className="bg-amber-50 text-amber-900 border border-amber-100 px-3 py-1.5 rounded-xl text-xs"
+                >
+                  {categoryName}
+                </span>
+              ))}
+            </div>
+          )}
+          {categoryError && (
+            <p role="alert" className="text-xs text-red-600 font-bold">
+              {categoryError}
+            </p>
+          )}
+          {categorySuccess && (
+            <p role="status" className="text-xs text-emerald-700 font-bold">
+              {categorySuccess}
+            </p>
+          )}
+        </section>
+
         <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
           <section className="bg-white p-6 rounded-3xl shadow-sm border border-amber-100 text-center space-y-4 md:col-span-1">
             <div className="flex items-center justify-center gap-1.5 text-amber-900 font-bold text-sm">
@@ -403,97 +548,119 @@ export default function DashboardClient({
             <h2 className="font-bold text-sm text-slate-800">
               مدیریت آیتم‌های منو
             </h2>
-            <div className="space-y-3">
+            <div className="space-y-4">
               {menu?.items.length === 0 && (
                 <p className="text-xs text-slate-500 text-center py-6">
                   هنوز آیتمی در منو ثبت نشده است.
                 </p>
               )}
-              {menu?.items.map((item) => (
-                <div
-                  key={item.id}
-                  className="p-3.5 bg-slate-50 rounded-2xl border border-slate-100 space-y-3"
+              {categoryNames.map((categoryName) => (
+                <section
+                  key={categoryName}
+                  className="space-y-3 rounded-2xl border border-amber-100 bg-amber-50/30 p-3"
                 >
-                  <div className="flex items-center gap-3">
-                    {item.image_url ? (
-                      <NextImage
-                        src={item.image_url}
-                        alt={item.name}
-                        width={80}
-                        height={80}
-                        unoptimized
-                        className="w-20 h-20 shrink-0 rounded-2xl object-cover border border-slate-200"
-                      />
-                    ) : (
-                      <div className="w-20 h-20 shrink-0 rounded-2xl bg-amber-50 border border-amber-100 flex items-center justify-center text-amber-700">
-                        <ImageIcon className="w-6 h-6" />
+                  <div className="flex items-center justify-between gap-2 px-1">
+                    <h3 className="font-bold text-xs text-amber-950">
+                      {categoryName}
+                    </h3>
+                    <span className="text-[10px] text-slate-500">
+                      {menu?.items.filter(
+                        (item) => item.category === categoryName,
+                      ).length ?? 0}{" "}
+                      آیتم
+                    </span>
+                  </div>
+                  {menu?.items
+                    .filter((item) => item.category === categoryName)
+                    .map((item) => (
+                      <div
+                        key={item.id}
+                        className="p-3.5 bg-slate-50 rounded-2xl border border-slate-100 space-y-3"
+                      >
+                        <div className="flex items-center gap-3">
+                          {item.image_url ? (
+                            <NextImage
+                              src={item.image_url}
+                              alt={item.name}
+                              width={80}
+                              height={80}
+                              unoptimized
+                              className="w-20 h-20 shrink-0 rounded-2xl object-cover border border-slate-200"
+                            />
+                          ) : (
+                            <div className="w-20 h-20 shrink-0 rounded-2xl bg-amber-50 border border-amber-100 flex items-center justify-center text-amber-700">
+                              <ImageIcon className="w-6 h-6" />
+                            </div>
+                          )}
+                          <div className="space-y-0.5 min-w-0">
+                            <h3 className="font-bold text-xs text-slate-800">
+                              {item.name}
+                            </h3>
+                            <p className="text-[11px] text-slate-500">
+                              {item.description}
+                            </p>
+                            <span className="text-xs font-bold text-amber-900 block mt-1">
+                              {item.price
+                                ? (item.price.amount / 10).toLocaleString(
+                                    "fa-IR",
+                                  )
+                                : 0}{" "}
+                              تومان
+                            </span>
+                          </div>
+                        </div>
+                        <div className="flex items-center justify-between gap-2 pt-2 border-t border-slate-200/70">
+                          <label
+                            className={`text-xs font-bold text-amber-800 hover:bg-amber-50 px-3 py-2 rounded-xl transition-colors flex items-center gap-1.5 cursor-pointer ${
+                              uploadingItemKey === item.id
+                                ? "opacity-50 pointer-events-none"
+                                : ""
+                            }`}
+                          >
+                            <ImageIcon className="w-4 h-4" />
+                            <span>
+                              {uploadingItemKey === item.id
+                                ? "در حال بارگذاری..."
+                                : item.image_url
+                                  ? "تغییر تصویر"
+                                  : "افزودن تصویر"}
+                            </span>
+                            <input
+                              type="file"
+                              accept=".jpg,.jpeg,.png,.webp,image/jpeg,image/png,image/webp"
+                              className="hidden"
+                              disabled={uploadingItemKey === item.id}
+                              onChange={(event) => {
+                                const file = event.target.files?.[0];
+                                event.target.value = "";
+                                if (file) void handleImageUpload(item.id, file);
+                              }}
+                            />
+                          </label>
+                          <div className="flex items-center gap-1">
+                            <button
+                              type="button"
+                              onClick={() => openEditModal(item)}
+                              className="px-3 py-2 shrink-0 text-slate-600 hover:bg-slate-200/70 rounded-xl transition-colors flex items-center gap-1.5 text-xs font-bold"
+                              title="ویرایش آیتم"
+                            >
+                              <Pencil className="w-4 h-4" />
+                              <span>ویرایش</span>
+                            </button>
+                            <button
+                              onClick={() => handleDeleteItem(item.id)}
+                              disabled={deletingItemKey === item.id}
+                              className="p-2 shrink-0 text-red-500 hover:bg-red-50 rounded-xl transition-colors disabled:opacity-40"
+                              title="حذف آیتم"
+                              aria-label={`حذف ${item.name}`}
+                            >
+                              <Trash2 className="w-4 h-4" />
+                            </button>
+                          </div>
+                        </div>
                       </div>
-                    )}
-                    <div className="space-y-0.5 min-w-0">
-                      <h3 className="font-bold text-xs text-slate-800">
-                        {item.name}
-                      </h3>
-                      <p className="text-[11px] text-slate-500">
-                        {item.description}
-                      </p>
-                      <span className="text-xs font-bold text-amber-900 block mt-1">
-                        {item.price
-                          ? (item.price.amount / 10).toLocaleString("fa-IR")
-                          : 0}{" "}
-                        تومان
-                      </span>
-                    </div>
-                  </div>
-                  <div className="flex items-center justify-between gap-2 pt-2 border-t border-slate-200/70">
-                    <label
-                      className={`text-xs font-bold text-amber-800 hover:bg-amber-50 px-3 py-2 rounded-xl transition-colors flex items-center gap-1.5 cursor-pointer ${
-                        uploadingItemKey === item.id
-                          ? "opacity-50 pointer-events-none"
-                          : ""
-                      }`}
-                    >
-                      <ImageIcon className="w-4 h-4" />
-                      <span>
-                        {uploadingItemKey === item.id
-                          ? "در حال بارگذاری..."
-                          : item.image_url
-                            ? "تغییر تصویر"
-                            : "افزودن تصویر"}
-                      </span>
-                      <input
-                        type="file"
-                        accept=".jpg,.jpeg,.png,.webp,image/jpeg,image/png,image/webp"
-                        className="hidden"
-                        disabled={uploadingItemKey === item.id}
-                        onChange={(event) => {
-                          const file = event.target.files?.[0];
-                          event.target.value = "";
-                          if (file) void handleImageUpload(item.id, file);
-                        }}
-                      />
-                    </label>
-                    <div className="flex items-center gap-1">
-                      <button
-                        type="button"
-                        onClick={() => openEditModal(item)}
-                        className="px-3 py-2 shrink-0 text-slate-600 hover:bg-slate-200/70 rounded-xl transition-colors flex items-center gap-1.5 text-xs font-bold"
-                        title="ویرایش آیتم"
-                      >
-                        <Pencil className="w-4 h-4" />
-                        <span>ویرایش</span>
-                      </button>
-                      <button
-                        onClick={() => handleDeleteItem(item.id)}
-                        disabled={deletingItemKey === item.id}
-                        className="p-2 shrink-0 text-red-500 hover:bg-red-50 rounded-xl transition-colors disabled:opacity-40"
-                        title="حذف آیتم"
-                        aria-label={`حذف ${item.name}`}
-                      >
-                        <Trash2 className="w-4 h-4" />
-                      </button>
-                    </div>
-                  </div>
-                </div>
+                    ))}
+                </section>
               ))}
             </div>
           </section>
@@ -508,7 +675,10 @@ export default function DashboardClient({
             aria-labelledby="item-form-title"
             className="bg-white w-full max-w-md max-h-[90svh] overflow-y-auto p-6 rounded-3xl shadow-lg space-y-4"
           >
-            <h3 id="item-form-title" className="font-bold text-sm text-slate-800">
+            <h3
+              id="item-form-title"
+              className="font-bold text-sm text-slate-800"
+            >
               {editingItemKey ? "ویرایش آیتم" : "افزودن آیتم جدید به منو"}
             </h3>
             <form onSubmit={handleSubmitItem} className="space-y-3">
@@ -526,12 +696,20 @@ export default function DashboardClient({
                 aria-label="دسته‌بندی"
                 value={category}
                 onChange={(event) => setCategory(event.target.value)}
-                className="w-full bg-slate-50 border border-slate-200 rounded-xl p-3 text-xs text-slate-800 focus:outline-none"
+                required
+                disabled={categoryNames.length === 0}
+                className="w-full bg-slate-50 border border-slate-200 rounded-xl p-3 text-xs text-slate-800 focus:outline-none disabled:opacity-60"
               >
-                <option value="نوشیدنی گرم">نوشیدنی گرم</option>
-                <option value="نوشیدنی سرد">نوشیدنی سرد</option>
-                <option value="غذای گرم">غذای گرم</option>
-                <option value="دسر">دسر</option>
+                <option value="" disabled>
+                  {categoryNames.length === 0
+                    ? "ابتدا یک دسته‌بندی بسازید"
+                    : "انتخاب دسته‌بندی"}
+                </option>
+                {categoryNames.map((categoryName) => (
+                  <option key={categoryName} value={categoryName}>
+                    {categoryName}
+                  </option>
+                ))}
               </select>
               <textarea
                 aria-label="توضیحات و ترکیبات"
@@ -586,14 +764,17 @@ export default function DashboardClient({
                 <span>طعم تند دارد</span>
               </label>
               {formError && (
-                <p role="alert" className="text-xs text-red-600 text-center font-bold">
+                <p
+                  role="alert"
+                  className="text-xs text-red-600 text-center font-bold"
+                >
                   {formError}
                 </p>
               )}
               <div className="flex gap-2 pt-2">
                 <button
                   type="submit"
-                  disabled={saving}
+                  disabled={saving || !category}
                   className="flex-1 bg-amber-800 hover:bg-amber-900 text-white font-bold py-2.5 rounded-xl text-xs disabled:opacity-50"
                 >
                   {saving

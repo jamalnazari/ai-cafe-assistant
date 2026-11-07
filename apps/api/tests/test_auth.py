@@ -18,6 +18,7 @@ from app.db.session import get_db
 from app.models import (
     AuthSessionModel,
     Base,
+    MenuCategoryModel,
     MenuItemModel,
     RestaurantModel,
     UserModel,
@@ -65,6 +66,7 @@ def auth_context(tmp_path, monkeypatch) -> AuthTestContext:
                     RestaurantModel(
                         slug="demo",
                         name="کافه آزمایشی",
+                        categories=[MenuCategoryModel(name="نوشیدنی گرم")],
                         items=[
                             MenuItemModel(
                                 item_key="latte",
@@ -126,10 +128,14 @@ def test_menu_mutations_require_authentication(auth_context: AuthTestContext):
     update_response = client.patch(
         "/api/v1/restaurants/demo/items/latte", json={"name": "لاته ویژه"}
     )
+    category_response = client.post(
+        "/api/v1/restaurants/demo/categories", json={"name": "دسر"}
+    )
 
     assert create_response.status_code == 401
     assert delete_response.status_code == 401
     assert update_response.status_code == 401
+    assert category_response.status_code == 401
     assert "نشست" in create_response.json()["detail"]
     menu_response = client.get("/api/v1/restaurants/demo/menu")
     assert [item["id"] for item in menu_response.json()["items"]] == ["latte"]
@@ -316,6 +322,10 @@ def test_owner_can_update_item_and_preserve_unsent_fields(
         files={"file": ("latte.png", PNG_IMAGE, "image/png")},
     )
     image_url = image_response.json()["image_url"]
+    category_response = client.post(
+        "/api/v1/restaurants/demo/categories", json={"name": "نوشیدنی ویژه"}
+    )
+    assert category_response.status_code == 200
 
     response = client.patch(
         "/api/v1/restaurants/demo/items/latte",
@@ -339,3 +349,50 @@ def test_owner_can_update_item_and_preserve_unsent_fields(
     assert latte["ingredients"] == ["اسپرسو", "شیر"]
     assert latte["allergens"] == ["شیر"]
     assert latte["is_available"] is True
+
+
+def test_owner_can_create_category_and_assign_items_to_it(
+    auth_context: AuthTestContext,
+):
+    client = auth_context.client
+    assert login(client).status_code == 200
+
+    response = client.post(
+        "/api/v1/restaurants/demo/categories", json={"name": "  دسر ویژه  "}
+    )
+    assert response.status_code == 200
+    assert response.json()["name"] == "دسر ویژه"
+
+    duplicate = client.post(
+        "/api/v1/restaurants/demo/categories", json={"name": "دسر ویژه"}
+    )
+    assert duplicate.status_code == 409
+
+    payload = new_item_payload()
+    payload["category"] = "دسر ویژه"
+    create_response = client.post("/api/v1/restaurants/demo/items", json=payload)
+    assert create_response.status_code == 200
+
+    menu = client.get("/api/v1/restaurants/demo/menu").json()
+    assert "دسر ویژه" in menu["categories"]
+    created_item = next(item for item in menu["items"] if item["id"] == "flat-white")
+    assert created_item["category"] == "دسر ویژه"
+
+
+def test_item_cannot_use_an_unknown_category(auth_context: AuthTestContext):
+    client = auth_context.client
+    assert login(client).status_code == 200
+    payload = new_item_payload()
+    payload["category"] = "دسته‌بندی نامعتبر"
+
+    response = client.post("/api/v1/restaurants/demo/items", json=payload)
+
+    assert response.status_code == 400
+    assert "دسته‌بندی معتبر نیست" in response.json()["detail"]
+
+    update_response = client.patch(
+        "/api/v1/restaurants/demo/items/latte",
+        json={"category": "دسته‌بندی نامعتبر"},
+    )
+    assert update_response.status_code == 400
+    assert "دسته‌بندی معتبر نیست" in update_response.json()["detail"]

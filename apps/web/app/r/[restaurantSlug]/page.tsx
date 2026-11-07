@@ -1,8 +1,8 @@
 "use client";
 
-import React, { useCallback, useState, useEffect, useRef } from "react";
+import React, { useCallback, useState, useEffect } from "react";
 import NextImage from "next/image";
-import { Mic, MicOff, Send, Volume2, Sparkles, AlertCircle } from "lucide-react";
+import { Send, Sparkles, AlertCircle, MessageCircle } from "lucide-react";
 
 interface MenuItem {
   id: string;
@@ -39,13 +39,7 @@ export default function GuestMenuPage({ params }: PageProps) {
   // حالت‌های پرسش و پاسخ
   const [textQuestion, setTextQuestion] = useState("");
   const [isAsking, setIsAsking] = useState(false);
-  const [transcript, setTranscript] = useState<string | null>(null);
   const [answer, setAnswer] = useState<string | null>(null);
-
-  // حالت‌های ضبط صدا
-  const [isRecording, setIsRecording] = useState(false);
-  const mediaRecorderRef = useRef<MediaRecorder | null>(null);
-  const audioChunksRef = useRef<Blob[]>([]);
 
   const fetchMenu = useCallback(async (restaurantSlug: string) => {
     try {
@@ -58,7 +52,7 @@ export default function GuestMenuPage({ params }: PageProps) {
       setMenu(data);
     } catch (err: unknown) {
       setError(
-        err instanceof Error ? err.message : "خطا در دریافت اطلاعات منو"
+        err instanceof Error ? err.message : "خطا در دریافت اطلاعات منو",
       );
     } finally {
       setLoading(false);
@@ -79,7 +73,6 @@ export default function GuestMenuPage({ params }: PageProps) {
 
     try {
       setIsAsking(true);
-      setTranscript(null);
       setError(null);
 
       const res = await fetch(`/api/v1/restaurants/${slug}/ask-text`, {
@@ -95,88 +88,36 @@ export default function GuestMenuPage({ params }: PageProps) {
       setTextQuestion("");
     } catch (err: unknown) {
       setError(
-        err instanceof Error ? err.message : "خطا در دریافت پاسخ از دستیار"
+        err instanceof Error ? err.message : "خطا در دریافت پاسخ از دستیار",
       );
     } finally {
       setIsAsking(false);
     }
   };
 
-  // شروع ضبط صدا
-  const startRecording = async () => {
-    try {
-      setError(null);
-      const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
-      const mediaRecorder = new MediaRecorder(stream);
-      mediaRecorderRef.current = mediaRecorder;
-      audioChunksRef.current = [];
-
-      mediaRecorder.ondataavailable = (event) => {
-        if (event.data.size > 0) {
-          audioChunksRef.current.push(event.data);
-        }
-      };
-
-      mediaRecorder.onstop = async () => {
-        const audioBlob = new Blob(audioChunksRef.current, { type: "audio/webm" });
-        await sendVoiceQuestion(audioBlob);
-        stream.getTracks().forEach((track) => track.stop());
-      };
-
-      mediaRecorder.start();
-      setIsRecording(true);
-    } catch {
-      setError("دسترسی به میکروفون داده نشد یا مرورگر پشتیبانی نمی‌کند.");
-    }
-  };
-
-  // توقف ضبط صدا
-  const stopRecording = () => {
-    if (mediaRecorderRef.current && isRecording) {
-      mediaRecorderRef.current.stop();
-      setIsRecording(false);
-    }
-  };
-
-  // ارسال فایل صوتی به FastAPI
-  const sendVoiceQuestion = async (audioBlob: Blob) => {
-    try {
-      setIsAsking(true);
-      setAnswer(null);
-
-      const formData = new FormData();
-      formData.append("file", audioBlob, "voice.webm");
-
-      const res = await fetch(`/api/v1/restaurants/${slug}/ask-voice`, {
-        method: "POST",
-        body: formData,
-      });
-
-      if (!res.ok) throw new Error("خطا در پردازش صدا توسط سرور");
-
-      const data = await res.json();
-      setTranscript(data.transcript);
-      setAnswer(data.answer);
-    } catch (err: unknown) {
-      setError(
-        err instanceof Error ? err.message : "خطا در پردازش صدا توسط سرور"
-      );
-    } finally {
-      setIsAsking(false);
-    }
-  };
+  const menuCategories = menu
+    ? Array.from(new Set(menu.items.map((item) => item.category)))
+    : [];
 
   if (loading) {
     return (
-      <div className="min-h-screen bg-amber-50 flex items-center justify-center p-4" dir="rtl">
-        <div className="text-amber-800 font-bold text-lg animate-pulse">در حال دریافت منو...</div>
+      <div
+        className="min-h-screen bg-amber-50 flex items-center justify-center p-4"
+        dir="rtl"
+      >
+        <div className="text-amber-800 font-bold text-lg animate-pulse">
+          در حال دریافت منو...
+        </div>
       </div>
     );
   }
 
   if (error && !menu) {
     return (
-      <div className="min-h-screen bg-amber-50 flex items-center justify-center p-4" dir="rtl">
+      <div
+        className="min-h-screen bg-amber-50 flex items-center justify-center p-4"
+        dir="rtl"
+      >
         <div className="bg-white p-6 rounded-2xl shadow-sm text-center max-w-sm">
           <AlertCircle className="w-12 h-12 text-red-500 mx-auto mb-3" />
           <h2 className="text-lg font-bold text-slate-800 mb-2">خطا</h2>
@@ -195,7 +136,7 @@ export default function GuestMenuPage({ params }: PageProps) {
         </span>
         <h1 className="text-2xl font-bold mt-2">{menu?.restaurant_name}</h1>
         <p className="text-xs text-amber-200/80 mt-1">
-          سوالات خود را به صورت صوتی یا متنی بپرسید
+          سؤال خود را به صورت متنی دربارهٔ منو بپرسید
         </p>
       </header>
 
@@ -204,115 +145,112 @@ export default function GuestMenuPage({ params }: PageProps) {
         <div className="min-h-[calc(100svh-180px)] flex items-center justify-center py-4">
           <section className="w-full bg-white p-5 rounded-3xl shadow-sm border border-amber-100 space-y-4">
             <div className="flex items-center justify-center gap-2 text-amber-800 font-bold text-sm text-center">
-            <Sparkles className="w-4 h-4 text-amber-600" />
-            <span>دستیار صوتی و متنی منو</span>
-          </div>
-
-          {/* نمایش متن استخراج‌شده از صدا */}
-          {transcript && (
-            <div className="bg-slate-50 p-3 rounded-2xl border border-slate-100 text-xs text-slate-600">
-              <span className="font-bold text-slate-700">سوال شما (صوتی): </span>
-              {transcript}
+              <Sparkles className="w-4 h-4 text-amber-600" />
+              <span>دستیار متنی منو</span>
             </div>
-          )}
 
-          {/* پاسخ هوش مصنوعی */}
-          {answer && (
-            <div className="bg-amber-50/80 p-4 rounded-2xl border border-amber-200 text-sm text-amber-950 leading-relaxed">
-              <div className="flex items-center gap-1.5 font-bold text-amber-900 text-xs mb-1">
-                <Volume2 className="w-3.5 h-3.5" />
-                <span>پاسخ دستیار:</span>
+            {/* پاسخ هوش مصنوعی */}
+            {answer && (
+              <div className="bg-amber-50/80 p-4 rounded-2xl border border-amber-200 text-sm text-amber-950 leading-relaxed">
+                <div className="flex items-center gap-1.5 font-bold text-amber-900 text-xs mb-1">
+                  <MessageCircle className="w-3.5 h-3.5" />
+                  <span>پاسخ دستیار:</span>
+                </div>
+                {answer}
               </div>
-              {answer}
-            </div>
-          )}
+            )}
 
-          {/* دکمه ضبط صدا و ورودی متن */}
-          <div className="flex items-center gap-2">
-            <button
-              onClick={isRecording ? stopRecording : startRecording}
-              disabled={isAsking}
-              className={`p-3.5 rounded-2xl transition-all text-white flex items-center justify-center ${
-                isRecording
-                  ? "bg-red-500 animate-bounce"
-                  : "bg-amber-800 hover:bg-amber-900"
-              } disabled:opacity-50`}
-              title={isRecording ? "توقف ضبط" : "شروع ضبط صدا"}
-            >
-              {isRecording ? <MicOff className="w-5 h-5" /> : <Mic className="w-5 h-5" />}
-            </button>
-
-            <form onSubmit={handleSendText} className="flex-1 flex gap-2">
+            <form onSubmit={handleSendText} className="flex gap-2">
               <input
                 type="text"
                 value={textQuestion}
                 onChange={(e) => setTextQuestion(e.target.value)}
-                placeholder={isRecording ? "در حال ضبط صدا..." : "پرسش درباره منو..."}
-                disabled={isRecording || isAsking}
+                placeholder="پرسش درباره منو..."
+                disabled={isAsking}
+                aria-label="سؤال درباره منو"
                 className="w-full bg-slate-50 border border-slate-200 rounded-2xl px-4 py-3 text-xs focus:outline-none focus:ring-2 focus:ring-amber-800/20 text-slate-800"
               />
               <button
                 type="submit"
-                disabled={!textQuestion.trim() || isAsking || isRecording}
+                disabled={!textQuestion.trim() || isAsking}
+                aria-label="ارسال سؤال"
                 className="bg-amber-800 hover:bg-amber-900 text-white p-3 rounded-2xl disabled:opacity-40 transition-colors"
               >
                 <Send className="w-4 h-4" />
               </button>
             </form>
-          </div>
 
-          {isAsking && (
-            <p className="text-center text-xs text-amber-700 animate-pulse">
-              در حال پردازش پاسخ توسط دستیار...
-            </p>
-          )}
+            {isAsking && (
+              <p className="text-center text-xs text-amber-700 animate-pulse">
+                در حال پردازش پاسخ توسط دستیار...
+              </p>
+            )}
 
-            {error && <p className="text-xs text-red-500 text-center">{error}</p>}
+            {error && (
+              <p className="text-xs text-red-500 text-center">{error}</p>
+            )}
           </section>
         </div>
 
-        {/* لیست غذاهای منو */}
-        <section className="space-y-3 mt-6">
-          <h2 className="text-sm font-bold text-slate-700 px-1">لیست آیتم‌های منو</h2>
-          {menu?.items.map((item) => (
-            <article
-              key={item.id}
-              className="bg-white rounded-2xl shadow-sm border border-amber-100/60 overflow-hidden"
-            >
-              {item.image_url && (
-                <NextImage
-                  src={item.image_url}
-                  alt={item.name}
-                  width={640}
-                  height={360}
-                  unoptimized
-                  className="w-full h-44 object-cover bg-amber-50"
-                />
-              )}
-              <div className="p-4 flex justify-between items-start gap-3">
-                <div className="space-y-1">
-                  <div className="flex items-center gap-2">
-                    <h3 className="font-bold text-sm text-slate-800">{item.name}</h3>
-                    {item.is_spicy && (
-                      <span className="text-[10px] bg-red-100 text-red-600 px-1.5 py-0.5 rounded-md">
-                        تند
-                      </span>
-                    )}
-                  </div>
-                  <p className="text-xs text-slate-500 line-clamp-2">
-                    {item.description}
-                  </p>
-                </div>
-                <div className="text-left shrink-0">
-                  <span className="text-xs font-bold text-amber-900">
-                    {item.price
-                      ? (item.price.amount / 10).toLocaleString("fa-IR")
-                      : 0}
-                  </span>
-                  <span className="text-[10px] text-slate-400 block">تومان</span>
-                </div>
+        {/* محصولات گروه‌بندی‌شده بر اساس دسته‌بندی */}
+        <section className="space-y-6 mt-6">
+          <h2 className="text-base font-bold text-slate-800 px-1">
+            منوی محصولات
+          </h2>
+          {menuCategories.map((category) => (
+            <section key={category} className="space-y-3">
+              <div className="flex items-center gap-2 px-1">
+                <span className="h-px flex-1 bg-amber-200" />
+                <h3 className="text-sm font-bold text-amber-900">{category}</h3>
+                <span className="h-px flex-1 bg-amber-200" />
               </div>
-            </article>
+              {menu?.items
+                .filter((item) => item.category === category)
+                .map((item) => (
+                  <article
+                    key={item.id}
+                    className="bg-white rounded-2xl shadow-sm border border-amber-100/60 overflow-hidden"
+                  >
+                    {item.image_url && (
+                      <NextImage
+                        src={item.image_url}
+                        alt={item.name}
+                        width={640}
+                        height={360}
+                        unoptimized
+                        className="w-full h-44 object-cover bg-amber-50"
+                      />
+                    )}
+                    <div className="p-4 flex justify-between items-start gap-3">
+                      <div className="space-y-1">
+                        <div className="flex items-center gap-2">
+                          <h3 className="font-bold text-sm text-slate-800">
+                            {item.name}
+                          </h3>
+                          {item.is_spicy && (
+                            <span className="text-[10px] bg-red-100 text-red-600 px-1.5 py-0.5 rounded-md">
+                              تند
+                            </span>
+                          )}
+                        </div>
+                        <p className="text-xs text-slate-500 line-clamp-2">
+                          {item.description}
+                        </p>
+                      </div>
+                      <div className="text-left shrink-0">
+                        <span className="text-xs font-bold text-amber-900">
+                          {item.price
+                            ? (item.price.amount / 10).toLocaleString("fa-IR")
+                            : 0}
+                        </span>
+                        <span className="text-[10px] text-slate-400 block">
+                          تومان
+                        </span>
+                      </div>
+                    </div>
+                  </article>
+                ))}
+            </section>
           ))}
         </section>
       </main>

@@ -23,3 +23,7 @@ class RestaurantModel(Base):
         back_populates="restaurant",
         cascade="all, delete-orphan",
     )
+    categories: Mapped[list["MenuCategoryModel"]] = relationship(
+        "MenuCategoryModel",
+        cascade="all, delete-orphan",
+    )

@@ -11,5 +11,6 @@ export interface MenuItem {
 export interface RestaurantMenu {
   restaurant_slug: string;
   restaurant_name: string;
+  categories?: string[];
   items: MenuItem[];
 }

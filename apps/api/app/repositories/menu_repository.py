@@ -35,13 +35,21 @@ class SqlAlchemyMenuRepository:
                 RestaurantModel.slug == restaurant_slug,
                 RestaurantModel.is_active == True,
             )
-            .options(selectinload(RestaurantModel.items))
+            .options(
+            selectinload(RestaurantModel.items),
+            selectinload(RestaurantModel.categories),
+        )
         )
         result = await self.session.execute(stmt)
         restaurant = result.scalar_one_or_none()
 
         if restaurant is None:
             return None
+
+        category_names = [category.name for category in restaurant.categories]
+        for item in restaurant.items:
+            if item.category not in category_names:
+                category_names.append(item.category)
 
         # تبدیل داده‌های ORM دیتابیس به اسکیمای استاندارد Pydantic
         items = [
@@ -64,5 +72,6 @@ class SqlAlchemyMenuRepository:
         return RestaurantMenu(
             restaurant_slug=restaurant.slug,
             restaurant_name=restaurant.name,
+            categories=category_names,
             items=items,
         )
