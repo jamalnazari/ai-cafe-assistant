@@ -1,4 +1,13 @@
-from fastapi import Depends, FastAPI, HTTPException, UploadFile, File, status
+from fastapi import (
+    Depends,
+    FastAPI,
+    File,
+    HTTPException,
+    Request,
+    Response,
+    UploadFile,
+    status,
+)
 from pydantic import BaseModel
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -8,8 +17,15 @@ from app.db.session import get_db
 from app.models.restaurant import RestaurantModel
 from app.models.menu import MenuItemModel
 from app.models.user import UserModel
-from app.core.security import verify_password
+from app.core.config import settings
+from app.core.auth import (
+    auth_service,
+    clear_session_cookie,
+    get_current_owner,
+    set_session_cookie,
+)
 from app.repositories.menu_repository import SqlAlchemyMenuRepository
+from app.schemas.auth import LoginRequest, LoginResponse, OwnerResponse
 from app.schemas.menu import RestaurantMenu, MenuItemCreate
 from app.services.assistant_service import AssistantService
 
@@ -19,11 +35,6 @@ app = FastAPI(
 )
 
 assistant_service = AssistantService()
-
-
-class LoginRequest(BaseModel):
-    email: str
-    password: str
 
 
 class TextQuestionRequest(BaseModel):
@@ -40,24 +51,45 @@ def health_check() -> dict[str, str]:
     return {"status": "ok"}
 
 
-# --- لاگین صاحب کافه ---
-@app.post("/api/v1/auth/login")
+# --- احراز هویت صاحب کافه ---
+@app.post("/api/v1/auth/login", response_model=LoginResponse)
 async def login(
     body: LoginRequest,
+    response: Response,
     db: AsyncSession = Depends(get_db),
-):
-    result = await db.execute(
-        select(UserModel).where(UserModel.email == body.email)
+) -> LoginResponse:
+    user = await auth_service.authenticate_owner(
+        db, str(body.email), body.password
     )
-    user = result.scalar_one_or_none()
 
-    if not user or not verify_password(body.password, user.password_hash):
+    if user is None:
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
             detail="ایمیل یا رمز عبور اشتباه است.",
         )
 
-    return {"message": "ورود موفقیت‌آمیز بود", "email": user.email}
+    token, expires_at = await auth_service.create_session(db, user)
+    set_session_cookie(response, token, expires_at)
+    return LoginResponse(message="ورود موفقیت‌آمیز بود.", email=user.email)
+
+
+@app.get("/api/v1/auth/me", response_model=OwnerResponse)
+async def get_authenticated_owner(
+    current_owner: UserModel = Depends(get_current_owner),
+) -> OwnerResponse:
+    return OwnerResponse(email=current_owner.email)
+
+
+@app.post("/api/v1/auth/logout")
+async def logout(
+    request: Request,
+    response: Response,
+    db: AsyncSession = Depends(get_db),
+) -> dict[str, str]:
+    token = request.cookies.get(settings.SESSION_COOKIE_NAME)
+    await auth_service.revoke_session(db, token)
+    clear_session_cookie(response)
+    return {"message": "با موفقیت از حساب خارج شدید."}
 
 
 # --- دریافت منو ---
@@ -84,6 +116,7 @@ async def create_menu_item(
     restaurant_slug: str,
     item_data: MenuItemCreate,
     db: AsyncSession = Depends(get_db),
+    _current_owner: UserModel = Depends(get_current_owner),
 ):
     result = await db.execute(
         select(RestaurantModel).where(RestaurantModel.slug == restaurant_slug)
@@ -117,6 +150,7 @@ async def delete_menu_item(
     restaurant_slug: str,
     item_key: str,
     db: AsyncSession = Depends(get_db),
+    _current_owner: UserModel = Depends(get_current_owner),
 ):
     result = await db.execute(
         select(RestaurantModel)

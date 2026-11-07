@@ -4,6 +4,7 @@ from app.db.session import engine, Base, AsyncSessionLocal
 from app.models.restaurant import RestaurantModel
 from app.models.menu import MenuItemModel
 from app.models.user import UserModel
+from app.models.auth_session import AuthSessionModel  # noqa: F401 - ثبت مدل در metadata
 from app.core.security import hash_password
 
 

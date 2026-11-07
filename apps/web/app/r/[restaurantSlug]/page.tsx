@@ -1,6 +1,6 @@
 "use client";
 
-import React, { useState, useEffect, useRef } from "react";
+import React, { useCallback, useState, useEffect, useRef } from "react";
 import { Mic, MicOff, Send, Volume2, Sparkles, AlertCircle } from "lucide-react";
 
 interface MenuItem {
@@ -45,14 +45,7 @@ export default function GuestMenuPage({ params }: PageProps) {
   const mediaRecorderRef = useRef<MediaRecorder | null>(null);
   const audioChunksRef = useRef<Blob[]>([]);
 
-  useEffect(() => {
-    params.then((resolvedParams) => {
-      setSlug(resolvedParams.restaurantSlug);
-      fetchMenu(resolvedParams.restaurantSlug);
-    });
-  }, [params]);
-
-  const fetchMenu = async (restaurantSlug: string) => {
+  const fetchMenu = useCallback(async (restaurantSlug: string) => {
     try {
       setLoading(true);
       const res = await fetch(`/api/v1/restaurants/${restaurantSlug}/menu`);
@@ -61,12 +54,21 @@ export default function GuestMenuPage({ params }: PageProps) {
       }
       const data: RestaurantMenu = await res.json();
       setMenu(data);
-    } catch (err: any) {
-      setError(err.message || "خطا در دریافت اطلاعات منو");
+    } catch (err: unknown) {
+      setError(
+        err instanceof Error ? err.message : "خطا در دریافت اطلاعات منو"
+      );
     } finally {
       setLoading(false);
     }
-  };
+  }, []);
+
+  useEffect(() => {
+    void params.then((resolvedParams) => {
+      setSlug(resolvedParams.restaurantSlug);
+      void fetchMenu(resolvedParams.restaurantSlug);
+    });
+  }, [params, fetchMenu]);
 
   // ارسال سؤال متنی
   const handleSendText = async (e: React.FormEvent) => {
@@ -89,8 +91,10 @@ export default function GuestMenuPage({ params }: PageProps) {
       const data = await res.json();
       setAnswer(data.answer);
       setTextQuestion("");
-    } catch (err: any) {
-      setError(err.message);
+    } catch (err: unknown) {
+      setError(
+        err instanceof Error ? err.message : "خطا در دریافت پاسخ از دستیار"
+      );
     } finally {
       setIsAsking(false);
     }
@@ -119,7 +123,7 @@ export default function GuestMenuPage({ params }: PageProps) {
 
       mediaRecorder.start();
       setIsRecording(true);
-    } catch (err) {
+    } catch {
       setError("دسترسی به میکروفون داده نشد یا مرورگر پشتیبانی نمی‌کند.");
     }
   };
@@ -151,8 +155,10 @@ export default function GuestMenuPage({ params }: PageProps) {
       const data = await res.json();
       setTranscript(data.transcript);
       setAnswer(data.answer);
-    } catch (err: any) {
-      setError(err.message);
+    } catch (err: unknown) {
+      setError(
+        err instanceof Error ? err.message : "خطا در پردازش صدا توسط سرور"
+      );
     } finally {
       setIsAsking(false);
     }

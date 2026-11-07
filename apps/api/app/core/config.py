@@ -14,6 +14,10 @@ class Settings(BaseSettings):
 
     # Security
     SECRET_KEY: str = "dev-secret-key-change-in-production"
+    SESSION_COOKIE_NAME: str = "cafe_owner_session"
+    SESSION_TTL_SECONDS: int = 60 * 60 * 24 * 7
+    # برای اجرای محلی روی HTTP خاموش است؛ در production حتماً True شود.
+    SESSION_COOKIE_SECURE: bool = False
 
     # AI Providers
     STT_PROVIDER: str = "mock"
