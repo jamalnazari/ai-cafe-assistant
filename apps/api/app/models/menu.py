@@ -19,7 +19,8 @@ class MenuItemModel(Base):
     name: Mapped[str] = mapped_column(String(100), nullable=False)
     category: Mapped[str] = mapped_column(String(50), nullable=False)
     description: Mapped[str] = mapped_column(String(500), nullable=False)
-    
+    image_filename: Mapped[str | None] = mapped_column(String(255), nullable=True)
+
     # اطلاعات ساختاری
     ingredients: Mapped[Optional[list[str]]] = mapped_column(JSON, nullable=True)
     allergens: Mapped[Optional[list[str]]] = mapped_column(JSON, nullable=True)

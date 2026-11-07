@@ -16,6 +16,7 @@ class MenuItem(BaseModel):
     name: str
     category: str
     description: str
+    image_url: str | None = None
     ingredients: list[str] | None = None
     # None یعنی آلرژن‌ها مشخص نیستند؛ [] یعنی بررسی شده و موردی ثبت نشده.
     allergens: list[str] | None = None

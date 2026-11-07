@@ -1,10 +1,21 @@
 "use client";
 
 import React, { useCallback, useState } from "react";
+import NextImage from "next/image";
 import { useRouter } from "next/navigation";
 import { QRCodeSVG } from "qrcode.react";
-import { Coffee, LogOut, Plus, QrCode, Trash2 } from "lucide-react";
+import {
+  Coffee,
+  Image as ImageIcon,
+  LogOut,
+  Plus,
+  QrCode,
+  Trash2,
+} from "lucide-react";
 import type { RestaurantMenu } from "./dashboard-types";
+
+const MAX_IMAGE_BYTES = 5 * 1024 * 1024;
+const ALLOWED_IMAGE_TYPES = ["image/jpeg", "image/png", "image/webp"];
 
 type DashboardClientProps = {
   ownerEmail: string;
@@ -19,6 +30,17 @@ async function getResponseError(response: Response, fallback: string) {
   return data?.detail ?? fallback;
 }
 
+function validateImageFile(file: File) {
+  if (!ALLOWED_IMAGE_TYPES.includes(file.type)) {
+    return "فرمت تصویر باید JPG، PNG یا WebP باشد.";
+  }
+  if (file.size === 0) return "فایل تصویر خالی است.";
+  if (file.size > MAX_IMAGE_BYTES) {
+    return "حجم تصویر نباید بیشتر از ۵ مگابایت باشد.";
+  }
+  return null;
+}
+
 export default function DashboardClient({
   ownerEmail,
   qrUrl,
@@ -30,8 +52,10 @@ export default function DashboardClient({
     initialMenu ? null : "دریافت منو ناموفق بود؛ لطفاً دوباره تلاش کنید."
   );
   const [showAddModal, setShowAddModal] = useState(false);
+  const [formError, setFormError] = useState<string | null>(null);
   const [saving, setSaving] = useState(false);
   const [deletingItemKey, setDeletingItemKey] = useState<string | null>(null);
+  const [uploadingItemKey, setUploadingItemKey] = useState<string | null>(null);
   const [loggingOut, setLoggingOut] = useState(false);
 
   const [name, setName] = useState("");
@@ -39,6 +63,7 @@ export default function DashboardClient({
   const [description, setDescription] = useState("");
   const [priceToman, setPriceToman] = useState("");
   const [isSpicy, setIsSpicy] = useState(false);
+  const [imageFile, setImageFile] = useState<File | null>(null);
 
   const fetchMenu = useCallback(async () => {
     try {
@@ -70,11 +95,62 @@ export default function DashboardClient({
     [router]
   );
 
+  const uploadImageRequest = useCallback(
+    async (itemKey: string, file: File) => {
+      const formData = new FormData();
+      formData.append("file", file);
+      const response = await fetch(
+        `/api/v1/restaurants/demo/items/${encodeURIComponent(itemKey)}/image`,
+        {
+          method: "POST",
+          body: formData,
+          credentials: "same-origin",
+        }
+      );
+
+      if (handleExpiredSession(response)) return false;
+      if (!response.ok) {
+        throw new Error(
+          await getResponseError(response, "بارگذاری تصویر ناموفق بود.")
+        );
+      }
+      return true;
+    },
+    [handleExpiredSession]
+  );
+
   const resetForm = () => {
     setName("");
     setDescription("");
     setPriceToman("");
     setIsSpicy(false);
+    setImageFile(null);
+    setFormError(null);
+  };
+
+  const closeAddModal = () => {
+    setShowAddModal(false);
+    setImageFile(null);
+    setFormError(null);
+  };
+
+  const handleSelectNewImage = (event: React.ChangeEvent<HTMLInputElement>) => {
+    const file = event.target.files?.[0] ?? null;
+    if (!file) {
+      setImageFile(null);
+      return;
+    }
+
+    const validationError = validateImageFile(file);
+    if (validationError) {
+      setImageFile(null);
+      setFormError(validationError);
+      event.target.value = "";
+      return;
+    }
+
+    setFormError(null);
+    setImageFile(file);
   };
 
   const handleAddItem = async (event: React.FormEvent) => {
@@ -83,7 +159,11 @@ export default function DashboardClient({
 
     setSaving(true);
     setActionError(null);
+    setFormError(null);
     const priceRial = Number.parseInt(priceToman, 10) * 10;
+    const itemKey = `item-${Date.now()}`;
+    const selectedImage = imageFile;
+    let itemCreated = false;
 
     try {
       const response = await fetch("/api/v1/restaurants/demo/items", {
@@ -91,7 +171,7 @@ export default function DashboardClient({
         headers: { "Content-Type": "application/json" },
         credentials: "same-origin",
         body: JSON.stringify({
-          item_key: `item-${Date.now()}`,
+          item_key: itemKey,
           name,
           category,
           description,
@@ -107,15 +187,57 @@ export default function DashboardClient({
         );
       }
 
+      itemCreated = true;
       setShowAddModal(false);
       resetForm();
+
+      if (selectedImage) {
+        try {
+          const uploaded = await uploadImageRequest(itemKey, selectedImage);
+          if (!uploaded) return;
+        } catch (error) {
+          await fetchMenu();
+          const reason =
+            error instanceof Error ? error.message : "بارگذاری تصویر ناموفق بود.";
+          throw new Error(
+            `آیتم ذخیره شد، اما تصویر بارگذاری نشد. ${reason} می‌توانید از ردیف آیتم دوباره تلاش کنید.`
+          );
+        }
+      }
+
+      await fetchMenu();
+    } catch (error) {
+      const message =
+        error instanceof Error ? error.message : "افزودن آیتم ناموفق بود.";
+      if (itemCreated) {
+        setActionError(message);
+      } else {
+        setFormError(message);
+      }
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  const handleImageUpload = async (itemKey: string, file: File) => {
+    const validationError = validateImageFile(file);
+    if (validationError) {
+      setActionError(validationError);
+      return;
+    }
+
+    setUploadingItemKey(itemKey);
+    setActionError(null);
+    try {
+      const uploaded = await uploadImageRequest(itemKey, file);
+      if (!uploaded) return;
       await fetchMenu();
     } catch (error) {
       setActionError(
-        error instanceof Error ? error.message : "افزودن آیتم ناموفق بود."
+        error instanceof Error ? error.message : "بارگذاری تصویر ناموفق بود."
       );
     } finally {
-      setSaving(false);
+      setUploadingItemKey(null);
     }
   };
 
@@ -188,7 +310,10 @@ export default function DashboardClient({
           </div>
           <div className="flex items-center gap-2">
             <button
-              onClick={() => setShowAddModal(true)}
+              onClick={() => {
+                setFormError(null);
+                setShowAddModal(true);
+              }}
               className="bg-amber-800 hover:bg-amber-900 text-white text-xs font-bold px-4 py-3 rounded-2xl flex items-center gap-1.5 transition-colors shadow-sm"
             >
               <Plus className="w-4 h-4" />
@@ -257,29 +382,76 @@ export default function DashboardClient({
               {menu?.items.map((item) => (
                 <div
                   key={item.id}
-                  className="p-3.5 bg-slate-50 rounded-2xl border border-slate-100 flex items-center justify-between gap-3"
+                  className="p-3.5 bg-slate-50 rounded-2xl border border-slate-100 space-y-3"
                 >
-                  <div className="space-y-0.5">
-                    <h3 className="font-bold text-xs text-slate-800">
-                      {item.name}
-                    </h3>
-                    <p className="text-[11px] text-slate-500">
-                      {item.description}
-                    </p>
-                    <span className="text-xs font-bold text-amber-900 block mt-1">
-                      {item.price ? (item.price.amount / 10).toLocaleString("fa-IR") : 0}{" "}
-                      تومان
-                    </span>
+                  <div className="flex items-center gap-3">
+                    {item.image_url ? (
+                      <NextImage
+                        src={item.image_url}
+                        alt={item.name}
+                        width={80}
+                        height={80}
+                        unoptimized
+                        className="w-20 h-20 shrink-0 rounded-2xl object-cover border border-slate-200"
+                      />
+                    ) : (
+                      <div className="w-20 h-20 shrink-0 rounded-2xl bg-amber-50 border border-amber-100 flex items-center justify-center text-amber-700">
+                        <ImageIcon className="w-6 h-6" />
+                      </div>
+                    )}
+                    <div className="space-y-0.5 min-w-0">
+                      <h3 className="font-bold text-xs text-slate-800">
+                        {item.name}
+                      </h3>
+                      <p className="text-[11px] text-slate-500">
+                        {item.description}
+                      </p>
+                      <span className="text-xs font-bold text-amber-900 block mt-1">
+                        {item.price
+                          ? (item.price.amount / 10).toLocaleString("fa-IR")
+                          : 0}{" "}
+                        تومان
+                      </span>
+                    </div>
                   </div>
-                  <button
-                    onClick={() => handleDeleteItem(item.id)}
-                    disabled={deletingItemKey === item.id}
-                    className="p-2 shrink-0 text-red-500 hover:bg-red-50 rounded-xl transition-colors disabled:opacity-40"
-                    title="حذف آیتم"
-                    aria-label={`حذف ${item.name}`}
-                  >
-                    <Trash2 className="w-4 h-4" />
-                  </button>
+                  <div className="flex items-center justify-between gap-2 pt-2 border-t border-slate-200/70">
+                    <label
+                      className={`text-xs font-bold text-amber-800 hover:bg-amber-50 px-3 py-2 rounded-xl transition-colors flex items-center gap-1.5 cursor-pointer ${
+                        uploadingItemKey === item.id
+                          ? "opacity-50 pointer-events-none"
+                          : ""
+                      }`}
+                    >
+                      <ImageIcon className="w-4 h-4" />
+                      <span>
+                        {uploadingItemKey === item.id
+                          ? "در حال بارگذاری..."
+                          : item.image_url
+                            ? "تغییر تصویر"
+                            : "افزودن تصویر"}
+                      </span>
+                      <input
+                        type="file"
+                        accept=".jpg,.jpeg,.png,.webp,image/jpeg,image/png,image/webp"
+                        className="hidden"
+                        disabled={uploadingItemKey === item.id}
+                        onChange={(event) => {
+                          const file = event.target.files?.[0];
+                          event.target.value = "";
+                          if (file) void handleImageUpload(item.id, file);
+                        }}
+                      />
+                    </label>
+                    <button
+                      onClick={() => handleDeleteItem(item.id)}
+                      disabled={deletingItemKey === item.id}
+                      className="p-2 shrink-0 text-red-500 hover:bg-red-50 rounded-xl transition-colors disabled:opacity-40"
+                      title="حذف آیتم"
+                      aria-label={`حذف ${item.name}`}
+                    >
+                      <Trash2 className="w-4 h-4" />
+                    </button>
+                  </div>
                 </div>
               ))}
             </div>
@@ -293,7 +465,7 @@ export default function DashboardClient({
             role="dialog"
             aria-modal="true"
             aria-labelledby="add-item-title"
-            className="bg-white w-full max-w-md p-6 rounded-3xl shadow-lg space-y-4"
+            className="bg-white w-full max-w-md max-h-[90svh] overflow-y-auto p-6 rounded-3xl shadow-lg space-y-4"
           >
             <h3 id="add-item-title" className="font-bold text-sm text-slate-800">
               افزودن آیتم جدید به منو
@@ -338,6 +510,29 @@ export default function DashboardClient({
                 required
                 className="w-full bg-slate-50 border border-slate-200 rounded-xl p-3 text-xs text-slate-800 focus:outline-none focus:ring-2 focus:ring-amber-800/20"
               />
+              <div className="space-y-1.5">
+                <label
+                  htmlFor="new-item-image"
+                  className="text-xs font-bold text-slate-700"
+                >
+                  تصویر آیتم (اختیاری)
+                </label>
+                <input
+                  id="new-item-image"
+                  type="file"
+                  accept=".jpg,.jpeg,.png,.webp,image/jpeg,image/png,image/webp"
+                  onChange={handleSelectNewImage}
+                  className="w-full bg-slate-50 border border-slate-200 rounded-xl p-2.5 text-xs text-slate-600 file:bg-amber-100 file:text-amber-900 file:border-0 file:rounded-lg file:px-3 file:py-2 file:ml-3 file:text-xs file:font-bold cursor-pointer"
+                />
+                <p className="text-[10px] text-slate-400">
+                  JPG، PNG یا WebP؛ حداکثر ۵ مگابایت
+                </p>
+                {imageFile && (
+                  <p className="text-[11px] text-slate-500 truncate">
+                    تصویر انتخاب‌شده: {imageFile.name}
+                  </p>
+                )}
+              </div>
               <label className="flex items-center gap-2 text-xs text-slate-700 cursor-pointer">
                 <input
                   type="checkbox"
@@ -347,6 +542,11 @@ export default function DashboardClient({
                 />
                 <span>طعم تند دارد</span>
               </label>
+              {formError && (
+                <p role="alert" className="text-xs text-red-600 text-center font-bold">
+                  {formError}
+                </p>
+              )}
               <div className="flex gap-2 pt-2">
                 <button
                   type="submit"
@@ -357,7 +557,7 @@ export default function DashboardClient({
                 </button>
                 <button
                   type="button"
-                  onClick={() => setShowAddModal(false)}
+                  onClick={closeAddModal}
                   disabled={saving}
                   className="bg-slate-100 text-slate-700 font-bold px-4 py-2.5 rounded-xl text-xs disabled:opacity-50"
                 >

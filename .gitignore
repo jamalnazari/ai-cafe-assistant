@@ -15,6 +15,9 @@ __pycache__/
 .env.*
 !.env.example
 
+# Uploaded menu item images
+apps/api/uploads/
+
 # Logs and operating-system files
 *.log
 .DS_Store

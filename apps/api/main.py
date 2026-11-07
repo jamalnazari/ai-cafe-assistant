@@ -8,6 +8,7 @@ from fastapi import (
     UploadFile,
     status,
 )
+from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -28,10 +29,18 @@ from app.repositories.menu_repository import SqlAlchemyMenuRepository
 from app.schemas.auth import LoginRequest, LoginResponse, OwnerResponse
 from app.schemas.menu import RestaurantMenu, MenuItemCreate
 from app.services.assistant_service import AssistantService
+from app.services.menu_image_service import menu_image_service
 
 app = FastAPI(
     title="Cafe Voice Assistant API",
     version="0.1.0",
+)
+
+settings.UPLOAD_DIR.mkdir(parents=True, exist_ok=True)
+app.mount(
+    "/api/v1/uploads/menu-items",
+    StaticFiles(directory=settings.UPLOAD_DIR),
+    name="menu-item-images",
 )
 
 assistant_service = AssistantService()
@@ -144,6 +153,44 @@ async def create_menu_item(
     return {"message": "آیتم جدید با موفقیت اضافه شد."}
 
 
+# --- افزودن یا تعویض تصویر آیتم توسط مالک ---
+@app.post("/api/v1/restaurants/{restaurant_slug}/items/{item_key}/image")
+async def upload_menu_item_image(
+    restaurant_slug: str,
+    item_key: str,
+    file: UploadFile = File(...),
+    db: AsyncSession = Depends(get_db),
+    _current_owner: UserModel = Depends(get_current_owner),
+) -> dict[str, str]:
+    result = await db.execute(
+        select(MenuItemModel)
+        .join(RestaurantModel)
+        .where(
+            RestaurantModel.slug == restaurant_slug,
+            MenuItemModel.item_key == item_key,
+        )
+    )
+    target_item = result.scalar_one_or_none()
+    if target_item is None:
+        raise HTTPException(status_code=404, detail="آیتم یافت نشد.")
+
+    new_filename = await menu_image_service.save_image(file)
+    old_filename = target_item.image_filename
+    target_item.image_filename = new_filename
+    try:
+        await db.commit()
+    except Exception:
+        await db.rollback()
+        menu_image_service.delete_image(new_filename)
+        raise
+
+    menu_image_service.delete_image(old_filename)
+    return {
+        "message": "تصویر آیتم با موفقیت ذخیره شد.",
+        "image_url": menu_image_service.get_image_url(new_filename) or "",
+    }
+
+
 # --- حذف آیتم از منو ---
 @app.delete("/api/v1/restaurants/{restaurant_slug}/items/{item_key}")
 async def delete_menu_item(
@@ -166,8 +213,10 @@ async def delete_menu_item(
     if not target_item:
         raise HTTPException(status_code=404, detail="آیتم یافت نشد.")
 
+    image_filename = target_item.image_filename
     await db.delete(target_item)
     await db.commit()
+    menu_image_service.delete_image(image_filename)
     return {"message": "آیتم حذف شد."}
 
 

@@ -5,6 +5,7 @@ from sqlalchemy.orm import selectinload
 
 from app.models.restaurant import RestaurantModel
 from app.schemas.menu import MenuItem, Price, RestaurantMenu
+from app.services.menu_image_service import menu_image_service
 
 
 class MenuRepository(Protocol):
@@ -49,6 +50,7 @@ class SqlAlchemyMenuRepository:
                 name=item.name,
                 category=item.category,
                 description=item.description,
+                image_url=menu_image_service.get_image_url(item.image_filename),
                 ingredients=item.ingredients,
                 allergens=item.allergens,
                 is_spicy=item.is_spicy,

@@ -3,6 +3,7 @@ from pydantic_settings import BaseSettings, SettingsConfigDict
 
 # پیدا کردن مسیر ریشهٔ پروژه برای خواندن فایل .env
 BASE_DIR = Path(__file__).resolve().parent.parent.parent.parent.parent
+API_DIR = Path(__file__).resolve().parents[2]
 
 
 class Settings(BaseSettings):
@@ -18,6 +19,10 @@ class Settings(BaseSettings):
     SESSION_TTL_SECONDS: int = 60 * 60 * 24 * 7
     # برای اجرای محلی روی HTTP خاموش است؛ در production حتماً True شود.
     SESSION_COOKIE_SECURE: bool = False
+
+    # Menu item images
+    UPLOAD_DIR: Path = API_DIR / "uploads" / "menu_items"
+    UPLOAD_MAX_BYTES: int = 5 * 1024 * 1024
 
     # AI Providers
     STT_PROVIDER: str = "mock"

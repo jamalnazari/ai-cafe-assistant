@@ -1,4 +1,5 @@
 import asyncio
+import base64
 from dataclasses import dataclass
 from datetime import datetime, timedelta, timezone
 
@@ -21,7 +22,13 @@ from app.models import (
     RestaurantModel,
     UserModel,
 )
+from app.services.menu_image_service import menu_image_service
 from main import app
+
+
+PNG_IMAGE = base64.b64decode(
+    "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNk+A8AAQUBAScY42YAAAAASUVORK5CYII="
+)
 
 
 @dataclass
@@ -81,6 +88,7 @@ def auth_context(tmp_path, monkeypatch) -> AuthTestContext:
 
     app.dependency_overrides[get_db] = override_get_db
     monkeypatch.setattr(settings, "SESSION_COOKIE_SECURE", True)
+    monkeypatch.setattr(menu_image_service, "upload_dir", tmp_path / "uploads")
 
     with TestClient(app, base_url="https://testserver") as client:
         yield AuthTestContext(client=client, session_factory=session_factory)
@@ -235,3 +243,58 @@ def test_expired_session_is_rejected(auth_context: AuthTestContext):
         ).status_code
         == 401
     )
+
+
+def test_menu_item_image_upload_requires_authentication(
+    auth_context: AuthTestContext,
+):
+    response = auth_context.client.post(
+        "/api/v1/restaurants/demo/items/latte/image",
+        files={"file": ("latte.png", PNG_IMAGE, "image/png")},
+    )
+
+    assert response.status_code == 401
+
+
+def test_owner_can_upload_replace_and_delete_menu_item_image(
+    auth_context: AuthTestContext,
+):
+    client = auth_context.client
+    assert login(client).status_code == 200
+    image_url = ""
+
+    for _ in range(2):
+        response = client.post(
+            "/api/v1/restaurants/demo/items/latte/image",
+            files={"file": ("latte.png", PNG_IMAGE, "image/png")},
+        )
+        assert response.status_code == 200
+        new_image_url = response.json()["image_url"]
+        assert new_image_url.startswith("/api/v1/uploads/menu-items/")
+        new_image_path = menu_image_service.upload_dir / new_image_url.rsplit("/", 1)[-1]
+        assert new_image_path.is_file()
+
+        if image_url:
+            old_image_path = menu_image_service.upload_dir / image_url.rsplit("/", 1)[-1]
+            assert not old_image_path.exists()
+        image_url = new_image_url
+
+    menu = client.get("/api/v1/restaurants/demo/menu").json()
+    latte = next(item for item in menu["items"] if item["id"] == "latte")
+    assert latte["image_url"] == image_url
+
+    assert client.delete("/api/v1/restaurants/demo/items/latte").status_code == 200
+    assert not (menu_image_service.upload_dir / image_url.rsplit("/", 1)[-1]).exists()
+
+
+def test_invalid_menu_item_image_is_rejected(auth_context: AuthTestContext):
+    client = auth_context.client
+    assert login(client).status_code == 200
+
+    response = client.post(
+        "/api/v1/restaurants/demo/items/latte/image",
+        files={"file": ("fake.png", b"not-an-image", "image/png")},
+    )
+
+    assert response.status_code == 415
+    assert "تصویر معتبر" in response.json()["detail"]

@@ -1,5 +1,5 @@
 import asyncio
-from sqlalchemy import select
+from sqlalchemy import inspect, select, text
 from app.db.session import engine, Base, AsyncSessionLocal
 from app.models.restaurant import RestaurantModel
 from app.models.menu import MenuItemModel
@@ -12,6 +12,17 @@ async def init_db():
     print("در حال به‌روزرسانی جدول‌ها در SQLite...")
     async with engine.begin() as conn:
         await conn.run_sync(Base.metadata.create_all)
+        menu_item_columns = await conn.run_sync(
+            lambda sync_conn: {
+                column["name"]
+                for column in inspect(sync_conn).get_columns("menu_items")
+            }
+        )
+        # دیتابیس‌های قبلی بدون حذف داده به‌روزرسانی می‌شوند.
+        if "image_filename" not in menu_item_columns:
+            await conn.execute(
+                text("ALTER TABLE menu_items ADD COLUMN image_filename VARCHAR(255)")
+            )
 
     async with AsyncSessionLocal() as session:
         # ساخت کاربر اولیه صاحب کافه

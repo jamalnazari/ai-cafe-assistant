@@ -1,6 +1,7 @@
 "use client";
 
 import React, { useCallback, useState, useEffect, useRef } from "react";
+import NextImage from "next/image";
 import { Mic, MicOff, Send, Volume2, Sparkles, AlertCircle } from "lucide-react";
 
 interface MenuItem {
@@ -8,6 +9,7 @@ interface MenuItem {
   name: string;
   category: string;
   description: string;
+  image_url?: string | null;
   ingredients?: string[] | null;
   allergens?: string[] | null;
   is_spicy?: boolean | null;
@@ -197,10 +199,11 @@ export default function GuestMenuPage({ params }: PageProps) {
         </p>
       </header>
 
-      <main className="max-w-md mx-auto p-4 space-y-6">
-        {/* بخش دستیار هوشمند */}
-        <section className="bg-white p-5 rounded-3xl shadow-sm border border-amber-100 space-y-4">
-          <div className="flex items-center gap-2 text-amber-800 font-bold text-sm">
+      <main className="max-w-md mx-auto p-4">
+        {/* چت در مرکز ناحیهٔ نمایش؛ منو بلافاصله بعد از آن قرار دارد. */}
+        <div className="min-h-[calc(100svh-180px)] flex items-center justify-center py-4">
+          <section className="w-full bg-white p-5 rounded-3xl shadow-sm border border-amber-100 space-y-4">
+            <div className="flex items-center justify-center gap-2 text-amber-800 font-bold text-sm text-center">
             <Sparkles className="w-4 h-4 text-amber-600" />
             <span>دستیار صوتی و متنی منو</span>
           </div>
@@ -264,35 +267,52 @@ export default function GuestMenuPage({ params }: PageProps) {
             </p>
           )}
 
-          {error && <p className="text-xs text-red-500 text-center">{error}</p>}
-        </section>
+            {error && <p className="text-xs text-red-500 text-center">{error}</p>}
+          </section>
+        </div>
 
         {/* لیست غذاهای منو */}
-        <section className="space-y-3">
+        <section className="space-y-3 mt-6">
           <h2 className="text-sm font-bold text-slate-700 px-1">لیست آیتم‌های منو</h2>
           {menu?.items.map((item) => (
-            <div
+            <article
               key={item.id}
-              className="bg-white p-4 rounded-2xl shadow-sm border border-amber-100/60 flex justify-between items-start"
+              className="bg-white rounded-2xl shadow-sm border border-amber-100/60 overflow-hidden"
             >
-              <div className="space-y-1">
-                <div className="flex items-center gap-2">
-                  <h3 className="font-bold text-sm text-slate-800">{item.name}</h3>
-                  {item.is_spicy && (
-                    <span className="text-[10px] bg-red-100 text-red-600 px-1.5 py-0.5 rounded-md">
-                      تند
-                    </span>
-                  )}
+              {item.image_url && (
+                <NextImage
+                  src={item.image_url}
+                  alt={item.name}
+                  width={640}
+                  height={360}
+                  unoptimized
+                  className="w-full h-44 object-cover bg-amber-50"
+                />
+              )}
+              <div className="p-4 flex justify-between items-start gap-3">
+                <div className="space-y-1">
+                  <div className="flex items-center gap-2">
+                    <h3 className="font-bold text-sm text-slate-800">{item.name}</h3>
+                    {item.is_spicy && (
+                      <span className="text-[10px] bg-red-100 text-red-600 px-1.5 py-0.5 rounded-md">
+                        تند
+                      </span>
+                    )}
+                  </div>
+                  <p className="text-xs text-slate-500 line-clamp-2">
+                    {item.description}
+                  </p>
                 </div>
-                <p className="text-xs text-slate-500 line-clamp-2">{item.description}</p>
+                <div className="text-left shrink-0">
+                  <span className="text-xs font-bold text-amber-900">
+                    {item.price
+                      ? (item.price.amount / 10).toLocaleString("fa-IR")
+                      : 0}
+                  </span>
+                  <span className="text-[10px] text-slate-400 block">تومان</span>
+                </div>
               </div>
-              <div className="text-left shrink-0 mr-2">
-                <span className="text-xs font-bold text-amber-900">
-                  {item.price ? (item.price.amount / 10).toLocaleString() : 0}
-                </span>
-                <span className="text-[10px] text-slate-400 block">تومان</span>
-              </div>
-            </div>
+            </article>
           ))}
         </section>
       </main>
