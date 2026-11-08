@@ -24,7 +24,7 @@ from app.models import (
     UserModel,
 )
 from app.services.menu_image_service import menu_image_service
-from main import app
+from main import app, assistant_service
 
 
 PNG_IMAGE = base64.b64decode(
@@ -396,3 +396,43 @@ def test_item_cannot_use_an_unknown_category(auth_context: AuthTestContext):
     )
     assert update_response.status_code == 400
     assert "دسته‌بندی معتبر نیست" in update_response.json()["detail"]
+
+
+def test_text_question_passes_previous_turns_to_the_assistant(
+    auth_context: AuthTestContext, monkeypatch
+):
+    class CapturingProvider:
+        def __init__(self) -> None:
+            self.question = ""
+            self.history = None
+            self.system_prompt = ""
+
+        async def generate_response(
+            self, system_prompt: str, user_question: str, history=None
+        ) -> str:
+            self.system_prompt = system_prompt
+            self.question = user_question
+            self.history = history
+            return "قیمت لاته ۱۴۵ هزار تومان است."
+
+    provider = CapturingProvider()
+    monkeypatch.setattr(assistant_service, "llm_provider", provider)
+
+    response = auth_context.client.post(
+        "/api/v1/restaurants/demo/ask-text",
+        json={
+            "question": "قیمتش چقدر است؟",
+            "history": [
+                {
+                    "question": "لاته چه ترکیباتی دارد؟",
+                    "answer": "لاته اسپرسو و شیر دارد.",
+                }
+            ],
+        },
+    )
+
+    assert response.status_code == 200
+    assert response.json()["answer"] == "قیمت لاته ۱۴۵ هزار تومان است."
+    assert provider.question == "قیمتش چقدر است؟"
+    assert provider.history == [("لاته چه ترکیباتی دارد؟", "لاته اسپرسو و شیر دارد.")]
+    assert "تاریخچه گفتگو" in provider.system_prompt

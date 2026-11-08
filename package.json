@@ -1,0 +1,9 @@
+{
+  "name": "ai-cafe-assistant",
+  "version": "1.0.0",
+  "private": true,
+  "description": "Single-tenant Persian cafe assistant",
+  "scripts": {
+    "start": "node scripts/start-project.mjs"
+  }
+}

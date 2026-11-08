@@ -28,6 +28,7 @@ from app.core.auth import (
 )
 from app.repositories.menu_repository import SqlAlchemyMenuRepository
 from app.schemas.auth import LoginRequest, LoginResponse, OwnerResponse
+from app.schemas.chat import TextQuestionRequest
 from app.schemas.menu import (
     MenuCategoryCreate,
     MenuItemCreate,
@@ -50,10 +51,6 @@ app.mount(
 )
 
 assistant_service = AssistantService()
-
-
-class TextQuestionRequest(BaseModel):
-    question: str
 
 
 class QuestionResponse(BaseModel):
@@ -328,7 +325,9 @@ async def ask_text_question(
     if menu is None:
         raise HTTPException(status_code=404, detail="Restaurant not found")
 
-    answer = await assistant_service.answer_text_question(menu, body.question)
+    answer = await assistant_service.answer_text_question(
+        menu, body.question, body.history
+    )
     return QuestionResponse(answer=answer)
 
 

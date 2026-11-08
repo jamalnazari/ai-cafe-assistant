@@ -2,7 +2,13 @@
 
 import React, { useCallback, useState, useEffect } from "react";
 import NextImage from "next/image";
-import { Send, Sparkles, AlertCircle, MessageCircle } from "lucide-react";
+import {
+  Send,
+  Sparkles,
+  AlertCircle,
+  MessageCircle,
+  LoaderCircle,
+} from "lucide-react";
 
 interface MenuItem {
   id: string;
@@ -30,6 +36,13 @@ interface PageProps {
   params: Promise<{ restaurantSlug: string }>;
 }
 
+interface ConversationTurn {
+  question: string;
+  answer: string;
+}
+
+const MAX_CONVERSATION_TURNS = 6;
+
 function formatAnswerForDisplay(answer: string): string {
   return answer
     .replace(/\r\n?/g, "\n")
@@ -47,6 +60,10 @@ export default function GuestMenuPage({ params }: PageProps) {
   const [textQuestion, setTextQuestion] = useState("");
   const [isAsking, setIsAsking] = useState(false);
   const [answer, setAnswer] = useState<string | null>(null);
+  const [lastQuestion, setLastQuestion] = useState("");
+  const [conversationHistory, setConversationHistory] = useState<
+    ConversationTurn[]
+  >([]);
 
   const fetchMenu = useCallback(async (restaurantSlug: string) => {
     try {
@@ -73,26 +90,40 @@ export default function GuestMenuPage({ params }: PageProps) {
     });
   }, [params, fetchMenu]);
 
-  // ارسال سؤال متنی
+  // ارسال سؤال متنی همراه با گفتگوهای اخیر برای فهم سؤال‌های پیگیری
   const handleSendText = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!textQuestion.trim() || isAsking) return;
+    const question = textQuestion.trim();
+    if (!question || isAsking) return;
 
     try {
       setIsAsking(true);
       setError(null);
+      setAnswer(null);
 
       const res = await fetch(`/api/v1/restaurants/${slug}/ask-text`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ question: textQuestion }),
+        body: JSON.stringify({
+          question,
+          history: conversationHistory.slice(-MAX_CONVERSATION_TURNS),
+        }),
       });
 
       if (!res.ok) throw new Error("خطا در دریافت پاسخ از دستیار");
 
-      const data = await res.json();
-      setAnswer(data.answer);
-      setTextQuestion("");
+      const data = (await res.json()) as { answer: string };
+      const nextAnswer = data.answer.trim();
+      if (!nextAnswer) throw new Error("پاسخ خالی از دستیار دریافت شد.");
+
+      setAnswer(nextAnswer);
+      setLastQuestion(question);
+      setConversationHistory((currentHistory) =>
+        [...currentHistory, { question, answer: nextAnswer }].slice(
+          -MAX_CONVERSATION_TURNS,
+        ),
+      );
+      // متن سؤال در ورودی باقی می‌ماند تا مشتری بتواند آن را ویرایش یا دوباره بفرستد.
     } catch (err: unknown) {
       setError(
         err instanceof Error ? err.message : "خطا در دریافت پاسخ از دستیار",
@@ -156,36 +187,77 @@ export default function GuestMenuPage({ params }: PageProps) {
               <span>دستیار متنی منو</span>
             </div>
 
-            <form onSubmit={handleSendText} className="flex gap-2">
+            <form
+              onSubmit={handleSendText}
+              aria-busy={isAsking}
+              className="flex gap-2"
+            >
               <input
                 type="text"
                 value={textQuestion}
                 onChange={(e) => setTextQuestion(e.target.value)}
                 placeholder="پرسش درباره منو..."
                 disabled={isAsking}
+                maxLength={2000}
                 aria-label="سؤال درباره منو"
                 className="w-full bg-slate-50 border border-slate-200 rounded-2xl px-4 py-3 text-xs focus:outline-none focus:ring-2 focus:ring-amber-800/20 text-slate-800"
               />
               <button
                 type="submit"
                 disabled={!textQuestion.trim() || isAsking}
-                aria-label="ارسال سؤال"
+                aria-label={isAsking ? "در حال دریافت پاسخ" : "ارسال سؤال"}
                 className="bg-amber-800 hover:bg-amber-900 text-white p-3 rounded-2xl disabled:opacity-40 transition-colors"
               >
-                <Send className="w-4 h-4" />
+                {isAsking ? (
+                  <LoaderCircle className="w-4 h-4 animate-spin" />
+                ) : (
+                  <Send className="w-4 h-4" />
+                )}
               </button>
             </form>
-
-            {isAsking && (
-              <p className="text-center text-xs text-amber-700 animate-pulse">
-                در حال پردازش پاسخ توسط دستیار...
-              </p>
-            )}
 
             {error && (
               <p className="text-xs text-red-500 text-center">{error}</p>
             )}
           </section>
+
+          {/* لودینگ در همان محل پاسخ، با انیمیشن و اسکلت متن */}
+          {isAsking && (
+            <section
+              role="status"
+              aria-live="polite"
+              aria-busy="true"
+              className="w-full mt-4 overflow-hidden rounded-3xl border border-amber-100 bg-white/90 p-5 shadow-sm"
+            >
+              <div className="flex items-center gap-3">
+                <div className="flex h-11 w-11 shrink-0 items-center justify-center rounded-2xl bg-amber-100">
+                  <LoaderCircle className="h-5 w-5 animate-spin text-amber-800" />
+                </div>
+                <div className="min-w-0 flex-1">
+                  <p className="text-sm font-bold text-amber-950">
+                    در حال آماده‌کردن پاسخ
+                  </p>
+                  <p className="mt-1 text-[11px] leading-5 text-slate-500">
+                    دستیار در حال بررسی منو و نوشتن پاسخ است؛ لطفاً کمی صبر کنید.
+                  </p>
+                </div>
+                <div className="flex items-center gap-1" aria-hidden="true">
+                  {[0, 1, 2].map((dot) => (
+                    <span
+                      key={dot}
+                      className="h-1.5 w-1.5 animate-bounce rounded-full bg-amber-700"
+                      style={{ animationDelay: `${dot * 150}ms` }}
+                    />
+                  ))}
+                </div>
+              </div>
+              <div className="mt-5 space-y-2.5" aria-hidden="true">
+                <div className="h-2.5 animate-pulse rounded-full bg-amber-100" />
+                <div className="h-2.5 w-5/6 animate-pulse rounded-full bg-amber-100 [animation-delay:150ms]" />
+                <div className="h-2.5 w-2/3 animate-pulse rounded-full bg-amber-100 [animation-delay:300ms]" />
+              </div>
+            </section>
+          )}
 
           {/* پاسخ مستقل، دقیقاً زیر کادر سؤال */}
           {answer && (
@@ -194,6 +266,12 @@ export default function GuestMenuPage({ params }: PageProps) {
               aria-label="پاسخ دستیار"
               className="w-full mt-4 bg-amber-50/80 p-4 rounded-2xl border border-amber-200 text-sm text-amber-950"
             >
+              <div className="mb-3 border-b border-amber-200/70 pb-3">
+                <p className="text-[11px] font-bold text-slate-500">سؤال شما:</p>
+                <p className="mt-1 whitespace-pre-wrap break-words text-xs leading-6 text-slate-700">
+                  {lastQuestion}
+                </p>
+              </div>
               <div className="flex items-center gap-1.5 font-bold text-amber-900 text-xs mb-2">
                 <MessageCircle className="w-3.5 h-3.5" />
                 <span>پاسخ دستیار:</span>

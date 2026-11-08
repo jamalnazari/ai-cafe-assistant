@@ -4,14 +4,24 @@ from app.core.config import settings
 
 
 class LLMProvider(Protocol):
-    async def generate_response(self, system_prompt: str, user_question: str) -> str:
+    async def generate_response(
+        self,
+        system_prompt: str,
+        user_question: str,
+        history: list[tuple[str, str]] | None = None,
+    ) -> str:
         ...
 
 
 class MockLLMProvider:
     """حالت تستی: پاسخ‌های شبیه‌سازی‌شده بدون نیاز به API Key"""
 
-    async def generate_response(self, system_prompt: str, user_question: str) -> str:
+    async def generate_response(
+        self,
+        system_prompt: str,
+        user_question: str,
+        history: list[tuple[str, str]] | None = None,
+    ) -> str:
         if "قیمت" in user_question or "تند" in user_question:
             return "بله، ساندویچ مرغ تند موجود است. قیمت آن ۲۸۰,۰۰۰ تومان می‌باشد و طعم تندی دارد."
         return "سلام! من دستیار کافه هستم. چطور می‌توانم در مورد منو به شما کمک کنم؟"
@@ -25,18 +35,30 @@ class OpenAICompatibleLLMProvider:
         self.api_key = api_key
         self.model = model
 
-    async def generate_response(self, system_prompt: str, user_question: str) -> str:
+    async def generate_response(
+        self,
+        system_prompt: str,
+        user_question: str,
+        history: list[tuple[str, str]] | None = None,
+    ) -> str:
         async with httpx.AsyncClient(timeout=30.0) as client:
             headers = {
                 "Authorization": f"Bearer {self.api_key}",
                 "Content-Type": "application/json",
             }
+            messages = [{"role": "system", "content": system_prompt}]
+            for previous_question, previous_answer in history or []:
+                messages.extend(
+                    [
+                        {"role": "user", "content": previous_question},
+                        {"role": "assistant", "content": previous_answer},
+                    ]
+                )
+            messages.append({"role": "user", "content": user_question})
+
             payload = {
                 "model": self.model,
-                "messages": [
-                    {"role": "system", "content": system_prompt},
-                    {"role": "user", "content": user_question},
-                ],
+                "messages": messages,
                 "temperature": 0.2,  # دمای پایین برای جلوگیری از حدس زدن و پاسخ‌های پرت
             }
 
