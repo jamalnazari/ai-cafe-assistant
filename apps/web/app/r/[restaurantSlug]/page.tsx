@@ -30,6 +30,13 @@ interface PageProps {
   params: Promise<{ restaurantSlug: string }>;
 }
 
+function formatAnswerForDisplay(answer: string): string {
+  return answer
+    .replace(/\r\n?/g, "\n")
+    .replace(/([.!?؟…]+)([»"')\]]*)[ \t]+/g, "$1$2\n")
+    .trim();
+}
+
 export default function GuestMenuPage({ params }: PageProps) {
   const [slug, setSlug] = useState<string>("");
   const [menu, setMenu] = useState<RestaurantMenu | null>(null);
@@ -142,23 +149,12 @@ export default function GuestMenuPage({ params }: PageProps) {
 
       <main className="max-w-md mx-auto p-4">
         {/* چت در مرکز ناحیهٔ نمایش؛ منو بلافاصله بعد از آن قرار دارد. */}
-        <div className="min-h-[calc(60svh-100px)] flex items-center justify-center py-4">
+        <div className="min-h-[calc(60svh-100px)] flex flex-col items-center justify-center py-4">
           <section className="w-full bg-white p-5 rounded-3xl shadow-sm border border-amber-100 space-y-4">
             <div className="flex items-center justify-center gap-2 text-amber-800 font-bold text-sm text-center">
               <Sparkles className="w-4 h-4 text-amber-600" />
               <span>دستیار متنی منو</span>
             </div>
-
-            {/* پاسخ هوش مصنوعی */}
-            {answer && (
-              <div className="bg-amber-50/80 p-4 rounded-2xl border border-amber-200 text-sm text-amber-950 leading-relaxed">
-                <div className="flex items-center gap-1.5 font-bold text-amber-900 text-xs mb-1">
-                  <MessageCircle className="w-3.5 h-3.5" />
-                  <span>پاسخ دستیار:</span>
-                </div>
-                {answer}
-              </div>
-            )}
 
             <form onSubmit={handleSendText} className="flex gap-2">
               <input
@@ -190,6 +186,23 @@ export default function GuestMenuPage({ params }: PageProps) {
               <p className="text-xs text-red-500 text-center">{error}</p>
             )}
           </section>
+
+          {/* پاسخ مستقل، دقیقاً زیر کادر سؤال */}
+          {answer && (
+            <section
+              aria-live="polite"
+              aria-label="پاسخ دستیار"
+              className="w-full mt-4 bg-amber-50/80 p-4 rounded-2xl border border-amber-200 text-sm text-amber-950"
+            >
+              <div className="flex items-center gap-1.5 font-bold text-amber-900 text-xs mb-2">
+                <MessageCircle className="w-3.5 h-3.5" />
+                <span>پاسخ دستیار:</span>
+              </div>
+              <div className="whitespace-pre-line break-words leading-8">
+                {formatAnswerForDisplay(answer)}
+              </div>
+            </section>
+          )}
         </div>
 
         {/* محصولات گروه‌بندی‌شده بر اساس دسته‌بندی */}
