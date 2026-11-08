@@ -17,6 +17,7 @@ from sqlalchemy.orm import selectinload
 from app.db.session import get_db
 from app.models.restaurant import RestaurantModel
 from app.models.menu import MenuItemModel
+from app.models.menu_category import MenuCategoryModel
 from app.models.user import UserModel
 from app.core.config import settings
 from app.core.auth import (
@@ -27,7 +28,12 @@ from app.core.auth import (
 )
 from app.repositories.menu_repository import SqlAlchemyMenuRepository
 from app.schemas.auth import LoginRequest, LoginResponse, OwnerResponse
-from app.schemas.menu import MenuItemCreate, MenuItemUpdate, RestaurantMenu
+from app.schemas.menu import (
+    MenuCategoryCreate,
+    MenuItemCreate,
+    MenuItemUpdate,
+    RestaurantMenu,
+)
 from app.services.assistant_service import AssistantService
 from app.services.menu_image_service import menu_image_service
 
@@ -119,6 +125,43 @@ async def get_restaurant_menu(
     return menu
 
 
+async def category_exists(
+    db: AsyncSession, restaurant_id: int, category_name: str
+) -> bool:
+    result = await db.execute(
+        select(MenuCategoryModel).where(
+            MenuCategoryModel.restaurant_id == restaurant_id,
+            MenuCategoryModel.name == category_name,
+        )
+    )
+    return result.scalar_one_or_none() is not None
+
+
+# --- ساخت دسته‌بندی جدید توسط مالک ---
+@app.post("/api/v1/restaurants/{restaurant_slug}/categories")
+async def create_menu_category(
+    restaurant_slug: str,
+    category_data: MenuCategoryCreate,
+    db: AsyncSession = Depends(get_db),
+    _current_owner: UserModel = Depends(get_current_owner),
+) -> dict[str, str]:
+    result = await db.execute(
+        select(RestaurantModel).where(RestaurantModel.slug == restaurant_slug)
+    )
+    restaurant = result.scalar_one_or_none()
+    if restaurant is None:
+        raise HTTPException(status_code=404, detail="کافه یافت نشد.")
+
+    if await category_exists(db, restaurant.id, category_data.name):
+        raise HTTPException(status_code=409, detail="این دسته‌بندی قبلاً ساخته شده است.")
+
+    db.add(
+        MenuCategoryModel(restaurant_id=restaurant.id, name=category_data.name)
+    )
+    await db.commit()
+    return {"message": "دسته‌بندی جدید ساخته شد.", "name": category_data.name}
+
+
 # --- افزودن آیتم جدید به منو توسط مدیر ---
 @app.post("/api/v1/restaurants/{restaurant_slug}/items")
 async def create_menu_item(
@@ -135,11 +178,18 @@ async def create_menu_item(
     if not restaurant:
         raise HTTPException(status_code=404, detail="کافه یافت نشد.")
 
+    category_name = item_data.category.strip()
+    if not category_name or not await category_exists(db, restaurant.id, category_name):
+        raise HTTPException(
+            status_code=400,
+            detail="دسته‌بندی معتبر نیست؛ ابتدا دسته‌بندی را بسازید.",
+        )
+
     new_item = MenuItemModel(
         restaurant_id=restaurant.id,
         item_key=item_data.item_key,
         name=item_data.name,
-        category=item_data.category,
+        category=category_name,
         description=item_data.description,
         price_amount=item_data.price_amount,
         ingredients=item_data.ingredients,
@@ -177,6 +227,17 @@ async def update_menu_item(
     updates = item_data.model_dump(exclude_unset=True, exclude_none=True)
     if not updates:
         raise HTTPException(status_code=400, detail="فیلدی برای ویرایش ارسال نشده است.")
+
+    if "category" in updates:
+        category_name = updates["category"].strip()
+        if not category_name or not await category_exists(
+            db, target_item.restaurant_id, category_name
+        ):
+            raise HTTPException(
+                status_code=400,
+                detail="دسته‌بندی معتبر نیست؛ ابتدا دسته‌بندی را بسازید.",
+            )
+        updates["category"] = category_name
 
     for field_name, value in updates.items():
         setattr(target_item, field_name, value)

@@ -1,6 +1,6 @@
 from typing import Literal
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, field_validator
 
 
 class Price(BaseModel):
@@ -29,7 +29,21 @@ class MenuItem(BaseModel):
 class RestaurantMenu(BaseModel):
     restaurant_slug: str
     restaurant_name: str
+    categories: list[str] = Field(default_factory=list)
     items: list[MenuItem]
+
+
+class MenuCategoryCreate(BaseModel):
+    name: str = Field(min_length=1, max_length=50)
+
+    @field_validator("name")
+    @classmethod
+    def validate_name(cls, value: str) -> str:
+        name = value.strip()
+        if not name:
+            raise ValueError("نام دسته‌بندی نمی‌تواند خالی باشد.")
+        return name
+
 
 class MenuItemCreate(BaseModel):
     item_key: str
