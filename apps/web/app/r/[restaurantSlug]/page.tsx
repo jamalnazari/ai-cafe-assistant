@@ -201,7 +201,7 @@ export default function GuestMenuPage({ params }: PageProps) {
 
       <main className="max-w-md mx-auto p-4">
         {/* چت در مرکز ناحیهٔ نمایش؛ منو بلافاصله بعد از آن قرار دارد. */}
-        <div className="min-h-[calc(100svh-180px)] flex items-center justify-center py-4">
+        <div className="min-h-[calc(60svh-100px)] flex items-center justify-center py-4">
           <section className="w-full bg-white p-5 rounded-3xl shadow-sm border border-amber-100 space-y-4">
             <div className="flex items-center justify-center gap-2 text-amber-800 font-bold text-sm text-center">
             <Sparkles className="w-4 h-4 text-amber-600" />
