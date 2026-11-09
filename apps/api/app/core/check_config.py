@@ -32,6 +32,7 @@ def summarize() -> list[tuple[str, str]]:
             f"{settings.LOGIN_RATE_LIMIT} درخواست در {settings.LOGIN_RATE_WINDOW_SECONDS} ثانیه",
         ),
         ("پاسخ‌گویی هوش مصنوعی", settings.LLM_PROVIDER),
+        ("آدرس سرویس هوش مصنوعی", settings.AI_BASE_URL),
         ("مدل", settings.LLM_MODEL),
         ("پروکسی معتبر", "بله" if settings.TRUST_PROXY_HEADERS else "خیر"),
         (

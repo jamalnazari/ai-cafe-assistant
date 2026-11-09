@@ -81,7 +81,9 @@ class OpenAICompatibleLLMProvider:
         payload = {
             "model": self.model,
             "messages": messages,
-            "temperature": 0.2,  # دمای پایین برای جلوگیری از حدس زدن و پاسخ‌های پرت
+            # دمای پایین برای جلوگیری از حدس زدن و پاسخ‌های پرت
+            "temperature": settings.AI_TEMPERATURE,
+            "stream": False,
         }
 
         last_error: Exception | None = None
@@ -93,6 +95,10 @@ class OpenAICompatibleLLMProvider:
             except httpx.HTTPStatusError as error:
                 last_error = error
                 if error.response.status_code in NON_RETRYABLE_STATUS_CODES:
+                    if error.response.status_code in {401, 403}:
+                        logger.error(
+                            "کلید سرویس هوش مصنوعی پذیرفته نشد؛ AI_API_KEY را بررسی کنید."
+                        )
                     logger.error(
                         "سرویس هوش مصنوعی درخواست را رد کرد (%s): %s",
                         error.response.status_code,
@@ -138,7 +144,12 @@ class OpenAICompatibleLLMProvider:
             )
             response.raise_for_status()
             result = response.json()
-            content = result["choices"][0]["message"]["content"]
+            message = result["choices"][0]["message"]
+            content = message.get("content")
+            if not isinstance(content, str) or not content.strip():
+                # بعضی مدل‌های استدلالی (مثل DeepSeek) پاسخ را در reasoning_content
+                # می‌گذارند و content را خالی برمی‌گردانند.
+                content = message.get("reasoning_content")
             if not isinstance(content, str) or not content.strip():
                 raise ValueError("پاسخ خالی از سرویس هوش مصنوعی")
             return content.strip()

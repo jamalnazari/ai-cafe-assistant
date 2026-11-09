@@ -62,8 +62,11 @@ class Settings(BaseSettings):
     AI_API_KEY: str = "mock-key"
     STT_MODEL: str = "whisper-1"
     LLM_MODEL: str = "gpt-4o-mini"
+    # هر سرویس سازگار با OpenAI (OpenAI، Dahl، Groq، OpenRouter و…) پشتیبانی می‌شود.
     AI_REQUEST_TIMEOUT_SECONDS: float = 30.0
     AI_MAX_RETRIES: int = 2
+    # دمای پایین تا دستیار از خودش چیزی نسازد.
+    AI_TEMPERATURE: float = 0.2
 
     model_config = SettingsConfigDict(
         env_file=(str(BASE_DIR / ".env"), str(API_DIR / ".env")),
@@ -114,9 +117,12 @@ class Settings(BaseSettings):
                 "SECRET_KEY امن نیست. یک رشتهٔ تصادفی با حداقل ۳۲ نویسه تنظیم کنید."
             )
 
-        if self.LLM_PROVIDER not in {"mock", "openai"}:
+        # dahl و openai-compatible معادل openai هستند (همه با Chat Completions کار می‌کنند).
+        if self.LLM_PROVIDER not in {"mock", "openai", "openai-compatible", "dahl"}:
             problems.append(
-                f"LLM_PROVIDER نامعتبر است: {self.LLM_PROVIDER!r} (مقادیر مجاز: mock, openai)"
+                "LLM_PROVIDER نامعتبر است: "
+                f"{self.LLM_PROVIDER!r} "
+                "(مقادیر مجاز: mock, openai, openai-compatible, dahl)"
             )
 
         if self.LLM_PROVIDER != "mock" and self.AI_API_KEY in {"", "mock-key"}:
