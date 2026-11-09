@@ -1441,7 +1441,14 @@ export default function DashboardClient({
                   <Info className="h-4 w-4" aria-hidden="true" />
                 </span>
                 <div className="min-w-0 flex-1">
-                  <h3 className="text-sm font-black">دربارهٔ مجموعه</h3>
+                  <h3 className="flex items-center gap-1.5 text-sm font-black">
+                    دربارهٔ مجموعه
+                    {!menu?.restaurant_about && (
+                      <span className="rounded-full bg-warning-soft px-1.5 py-0.5 text-[9px] font-bold text-warning">
+                        تکمیل نشده
+                      </span>
+                    )}
+                  </h3>
                   <p className="text-[10px] text-ink-faint">
                     دستیار هوشمند این توضیحات را هم می‌خواند
                   </p>
@@ -1449,6 +1456,13 @@ export default function DashboardClient({
               </div>
 
               <form onSubmit={saveAbout} className="space-y-3 p-4">
+                {!menu?.restaurant_about && (
+                  <p className="rounded-xl border border-warning/30 bg-warning-soft px-2.5 py-2 text-[10px] font-bold leading-5 text-warning">
+                    این بخش خالی است؛ تا آن را پر نکنید، دستیار دربارهٔ کافه فقط
+                    می‌تواند منو را معرفی کند و برای ساعت کاری، آدرس یا امکانات
+                    چیزی برای گفتن ندارد.
+                  </p>
+                )}
                 <label
                   htmlFor="about-text"
                   className="text-[10px] font-bold text-ink-soft"

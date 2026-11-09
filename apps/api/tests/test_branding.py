@@ -438,3 +438,30 @@ def test_about_null_in_prompt_when_not_registered():
 
     assert payload["restaurant"]["about"] is None
     assert '"about": null' in prompt
+
+
+def test_prompt_describes_menu_when_about_is_empty():
+    """با خالی بودن «دربارهٔ مجموعه» دستیار نباید پرسش عمومی را کاملاً رد کند."""
+    from app.schemas.menu import MenuItem, Price, RestaurantMenu
+    from app.services.assistant_service import AssistantService
+
+    menu = RestaurantMenu(
+        restaurant_slug="demo",
+        restaurant_name="کافهٔ آزمایشی",
+        items=[
+            MenuItem(
+                id="latte",
+                name="لاته",
+                category="نوشیدنی گرم",
+                description="",
+                price=Price(amount=1_450_000, currency="IRR"),
+            )
+        ],
+    )
+
+    service = object.__new__(AssistantService)
+    prompt = service._build_system_prompt(menu)
+
+    assert "۱۰." in prompt
+    assert "معرفی کوتاه" in prompt
+    assert "ساعت کاری یا " in prompt
