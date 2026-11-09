@@ -13,6 +13,25 @@ export type AssistantTurn = {
 
 const MAX_CONVERSATION_TURNS = 6;
 
+const RATE_LIMIT_MESSAGE =
+  "تعداد پرسش‌های شما بیش از حد مجاز شده است؛ لطفاً کمی صبر کنید و دوباره بپرسید.";
+const UNAVAILABLE_MESSAGE =
+  "دستیار هوشمند موقتاً در دسترس نیست؛ چند لحظه بعد دوباره تلاش کنید.";
+const GENERIC_ERROR_MESSAGE = "ارتباط با دستیار برقرار نشد؛ دوباره تلاش کنید.";
+
+/** پیام فارسی سرور (اگر بفرستد) را می‌خواند. */
+async function readServerMessage(response: Response): Promise<string | null> {
+  try {
+    const body = (await response.json()) as { detail?: unknown };
+    if (typeof body.detail === "string" && body.detail.trim()) {
+      return body.detail.trim();
+    }
+  } catch {
+    // بدنهٔ پاسخ JSON نبود؛ پیام پیش‌فرض استفاده می‌شود.
+  }
+  return null;
+}
+
 export function useMenuAssistant(restaurantSlug: string) {
   const [turns, setTurns] = useState<AssistantTurn[]>([]);
   const [pendingQuestion, setPendingQuestion] = useState<string | null>(null);
@@ -48,7 +67,11 @@ export function useMenuAssistant(restaurantSlug: string) {
         );
 
         if (!response.ok) {
-          throw new Error("ارتباط با دستیار برقرار نشد؛ دوباره تلاش کنید.");
+          const serverMessage = await readServerMessage(response);
+          if (serverMessage) throw new Error(serverMessage);
+          if (response.status === 429) throw new Error(RATE_LIMIT_MESSAGE);
+          if (response.status >= 500) throw new Error(UNAVAILABLE_MESSAGE);
+          throw new Error(GENERIC_ERROR_MESSAGE);
         }
 
         const data = (await response.json()) as {

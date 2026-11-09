@@ -22,3 +22,6 @@ apps/api/uploads/
 *.log
 .DS_Store
 Thumbs.db
+# Database backups
+backups/
+apps/api/backups/

@@ -1,48 +1,68 @@
-import { spawn } from "node:child_process";
 import { existsSync } from "node:fs";
-import { dirname, join } from "node:path";
-import { fileURLToPath } from "node:url";
+import { join } from "node:path";
+import { spawn } from "node:child_process";
 
-const scriptsDir = dirname(fileURLToPath(import.meta.url));
-const rootDir = dirname(scriptsDir);
-const apiDir = join(rootDir, "apps", "api");
-const webDir = join(rootDir, "apps", "web");
-const isWindows = process.platform === "win32";
+import {
+  apiDir,
+  envInt,
+  isWindows,
+  requirePython,
+  rootDir,
+  webDir,
+} from "./lib/python-runtime.mjs";
 
-const pythonCandidates = isWindows
-  ? [
-      join(apiDir, ".venv", "Scripts", "python.exe"),
-      join(rootDir, ".venv", "Scripts", "python.exe"),
-    ]
-  : [
-      join(apiDir, ".venv", "bin", "python"),
-      join(rootDir, ".venv", "bin", "python"),
-    ];
-const pythonPath = pythonCandidates.find((candidate) => existsSync(candidate));
+const args = process.argv.slice(2);
+const productionMode =
+  args.includes("--prod") ||
+  args.includes("--production") ||
+  process.env.CAFE_MODE === "production";
+
+const pythonPath = requirePython();
 const nextCliPath = join(webDir, "node_modules", "next", "dist", "bin", "next");
 
-if (!pythonPath) {
+if (!existsSync(nextCliPath)) {
+  console.error("[Cafe] Next.js نصب نشده است. اجرا کنید: cd apps/web && npm install");
+  process.exit(1);
+}
+
+const apiPort = envInt("API_PORT", 8000);
+const webPort = envInt("WEB_PORT", 3000);
+// پشت پروکسی معتبر (Caddy/Nginx) سرویس‌ها فقط روی loopback گوش می‌دهند.
+const defaultHost = productionMode ? "127.0.0.1" : "0.0.0.0";
+const apiHost = process.env.API_HOST ?? defaultHost;
+const webHost = process.env.WEB_HOST ?? defaultHost;
+const apiInternalUrl = process.env.API_INTERNAL_URL ?? `http://127.0.0.1:${apiPort}`;
+
+if (productionMode && !existsSync(join(webDir, ".next", "BUILD_ID"))) {
   console.error(
-    "[Cafe] Python virtual environment not found. Create apps/api/.venv and install apps/api/requirements.txt first.",
+    "[Cafe] بیلد تولیدی Next.js پیدا نشد. ابتدا اجرا کنید: npm run build",
   );
   process.exit(1);
 }
 
-if (!existsSync(nextCliPath)) {
-  console.error("[Cafe] Next.js is not installed. Run: cd apps/web && npm install");
-  process.exit(1);
-}
+const sharedEnv = {
+  ...process.env,
+  ENVIRONMENT: productionMode ? "production" : process.env.ENVIRONMENT ?? "development",
+  API_INTERNAL_URL: apiInternalUrl,
+};
 
-const api = spawn(
-  pythonPath,
-  ["-m", "uvicorn", "main:app", "--reload", "--host", "0.0.0.0", "--port", "8000"],
-  { cwd: apiDir, stdio: "inherit" },
-);
-const web = spawn(
-  process.execPath,
-  [nextCliPath, "dev", "--hostname", "0.0.0.0", "--port", "3000"],
-  { cwd: webDir, stdio: "inherit" },
-);
+const apiArgs = ["-m", "uvicorn", "main:app", "--host", apiHost, "--port", String(apiPort)];
+if (!productionMode) apiArgs.push("--reload");
+
+const webArgs = [nextCliPath, productionMode ? "start" : "dev", "--hostname", webHost, "--port", String(webPort)];
+
+const api = spawn(pythonPath, apiArgs, {
+  cwd: apiDir,
+  stdio: "inherit",
+  env: sharedEnv,
+});
+
+const web = spawn(process.execPath, webArgs, {
+  cwd: webDir,
+  stdio: "inherit",
+  env: sharedEnv,
+});
+
 const children = [api, web];
 let shuttingDown = false;
 
@@ -57,13 +77,13 @@ function shutdown(exitCode = 0) {
 
 for (const child of children) {
   child.once("error", (error) => {
-    console.error(`[Cafe] Could not start a server: ${error.message}`);
+    console.error(`[Cafe] اجرای یکی از سرویس‌ها ممکن نشد: ${error.message}`);
     shutdown(1);
   });
   child.once("exit", (code, signal) => {
     if (shuttingDown) return;
-    if (code) console.error(`[Cafe] A server stopped with exit code ${code}.`);
-    if (signal) console.error(`[Cafe] A server stopped by ${signal}.`);
+    if (code) console.error(`[Cafe] یکی از سرویس‌ها با کد ${code} متوقف شد.`);
+    if (signal) console.error(`[Cafe] یکی از سرویس‌ها با سیگنال ${signal} متوقف شد.`);
     shutdown(code ?? 1);
   });
 }
@@ -71,6 +91,16 @@ for (const child of children) {
 process.once("SIGINT", () => shutdown(0));
 process.once("SIGTERM", () => shutdown(0));
 
-console.log("[Cafe] API:  http://localhost:8000");
-console.log("[Cafe] Web:  http://localhost:3000");
-console.log("[Cafe] Press Ctrl+C to stop both servers.");
+const modeLabel = productionMode ? "production" : "development";
+console.log(`[Cafe] حالت اجرا: ${modeLabel}`);
+console.log(`[Cafe] پوشهٔ پروژه: ${rootDir}`);
+console.log(`[Cafe] API:  http://${apiHost}:${apiPort}`);
+console.log(`[Cafe] Web:  http://${webHost}:${webPort}`);
+if (productionMode) {
+  console.log("[Cafe] سرویس‌ها فقط روی loopback فعال‌اند؛ ترافیک را از پروکسی عبور دهید.");
+} else {
+  console.log("[Cafe] برای خروج Ctrl+C را بزنید.");
+}
+if (isWindows && productionMode) {
+  console.log("[Cafe] نکته: در ویندوز اجرای production معمولاً پشت IIS یا یک پروکسی انجام می‌شود.");
+}

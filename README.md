@@ -86,7 +86,10 @@ ai-cafe-assistant/
 ├─ .env.example                  # نمونهٔ متغیرهای محیطی
 ├─ docs/
 │  ├─ architecture.md            # تصمیم‌های معماری
+│  ├─ DEPLOY.md                  # راهنمای استقرار روی سرور
 │  └─ menu.md                    # مدل دادهٔ منو و قواعد پیشنهاد
+├─ deploy/                       # فایل‌های نمونهٔ Caddy و systemd
+├─ .github/workflows/ci.yml      # تست و بیلد خودکار
 └─ apps/
    ├─ api/                       # بک‌اند FastAPI
    │  ├─ main.py                 # مسیرهای API
@@ -201,11 +204,20 @@ npm start
 
 | متغیر | پیش‌فرض | توضیح |
 | --- | --- | --- |
+| `ENVIRONMENT` | `development` | `development` یا `production` |
 | `DATABASE_URL` | `sqlite+aiosqlite:///./cafe.db` | مسیر دیتابیس؛ نسبت به پوشهٔ `apps/api` |
-| `SECRET_KEY` | مقدار توسعه | امضای کوکی نشست — **در استقرار الزامی است** |
+| `SECRET_KEY` | مقدار توسعه | امضای کوکی نشست — **در production حداقل ۳۲ نویسه و الزامی** |
 | `SESSION_COOKIE_NAME` | `cafe_owner_session` | نام کوکی نشست مالک |
 | `SESSION_TTL_SECONDS` | `604800` | مدت اعتبار نشست (۷ روز) |
-| `SESSION_COOKIE_SECURE` | `False` | روی HTTPS باید `True` باشد |
+| `SESSION_COOKIE_SECURE` | خودکار | خالی بماند: در production `True` و در توسعه `False` |
+| `RATE_LIMIT_ENABLED` | `True` | فعال بودن محدودیت نرخ |
+| `ASK_RATE_LIMIT` / `ASK_RATE_WINDOW_SECONDS` | `20` / `60` | سقف پرسش هر IP در هر بازه |
+| `LOGIN_RATE_LIMIT` / `LOGIN_RATE_WINDOW_SECONDS` | `8` / `300` | سقف تلاش ورود هر IP |
+| `TRUST_PROXY_HEADERS` | `False` | پشت Caddy/Nginx مقدار `True` |
+| `ALLOWED_HOSTS` | خالی | دامنه‌های مجاز، جداشده با کاما |
+| `UPLOAD_DIR` | `apps/api/uploads/menu_items` | پوشهٔ تصاویر؛ در سرور بیرون از پروژه بگذارید |
+| `BACKUP_DIR` / `BACKUP_KEEP` | `apps/api/backups` / `14` | مقصد و تعداد نسخه‌های پشتیبان |
+| `AI_REQUEST_TIMEOUT_SECONDS` / `AI_MAX_RETRIES` | `30` / `2` | زمان انتظار و تلاش دوبارهٔ LLM |
 | `LLM_PROVIDER` | `mock` | `mock` یا `openai` (سازگار با OpenAI) |
 | `AI_BASE_URL` | `https://api.openai.com/v1` | آدرس پایهٔ سرویس، تا انتهای `/v1` |
 | `AI_API_KEY` | `mock-key` | کلید سرویس — فقط در بک‌اند |
@@ -264,25 +276,56 @@ cd apps\api
 
 ## دستورهای توسعه
 
+همهٔ دستورها از **ریشهٔ پروژه** اجرا می‌شوند:
+
 | کار | دستور |
 | --- | --- |
-| اجرای هر دو سرویس | `npm start` (از ریشه) |
-| فقط API | `cd apps/api` سپس `.venv\Scripts\python.exe -m uvicorn main:app --reload --port 8000` |
-| فقط فرانت‌اند | `cd apps/web` سپس `npm run dev` |
-| تست بک‌اند | `cd apps/api` سپس `.venv\Scripts\python.exe -m pytest -q` |
-| لینت فرانت‌اند | `cd apps/web` سپس `npm run lint` |
-| بیلد تولیدی | `cd apps/web` سپس `npm run build` |
+| اجرای توسعه (هر دو سرویس) | `npm start` |
+| اجرای تولیدی (بیلد + اجرا) | `npm run start:prod` |
+| بیلد فرانت‌اند | `npm run build` |
+| تست بک‌اند | `npm test` |
+| لینت فرانت‌اند | `npm run lint` |
+| ساخت/به‌روزرسانی دیتابیس | `npm run db:init` |
+| منوی نمونه با تصاویر | `npm run db:seed` |
+| پشتیبان‌گیری از دیتابیس | `npm run db:backup` |
+| تغییر رمز صاحب کافه | `npm run owner:password` |
+| بررسی تنظیمات پیش از استقرار | `ENVIRONMENT=production npm run check:prod` |
 
 تست‌ها از دیتابیس موقت استفاده می‌کنند و به `cafe.db` شما دست نمی‌زنند.
+
+---
+
+## اجرای تولیدی
+
+```bash
+npm run build
+ENVIRONMENT=production npm run check:prod   # صحت SECRET_KEY و کلیدها
+ENVIRONMENT=production npm run start:prod
+```
+
+در حالت production:
+
+- مستندات تعاملی API (`/docs` و `/openapi.json`) بسته است.
+- سرویس‌ها فقط روی `127.0.0.1` گوش می‌دهند؛ ترافیک از پروکسی (Caddy/Nginx) می‌آید.
+- کوکی نشست به‌صورت خودکار `Secure` می‌شود.
+- بدون `SECRET_KEY` معتبر سرویس بالا نمی‌آید.
+- `/health` سلامت دیتابیس را هم بررسی می‌کند.
+
+راهنمای کامل استقرار (systemd، HTTPS، پشتیبان‌گیری، چک‌لیست امنیتی):
+**[docs/DEPLOY.md](docs/DEPLOY.md)**
 
 ---
 
 ## نکات امنیتی
 
 - فایل `.env` و کلیدهای API را هرگز commit نکنید (در `.gitignore` هست).
-- `SECRET_KEY` پیش‌فرض فقط برای توسعه است؛ در استقرار آن را جایگزین کنید.
-- روی HTTPS مقدار `SESSION_COOKIE_SECURE=True` بگذارید.
-- رمز پیش‌فرض مالک (`123456`) را تغییر دهید.
+- `SECRET_KEY` پیش‌فرض فقط برای توسعه است؛ در production سرویس با آن بالا نمی‌آید.
+- روی HTTPS کوکی نشست خودکار `Secure` می‌شود؛ در حالت دستی مقدار `True` بگذارید.
+- رمز پیش‌فرض مالک (`123456`) را با `npm run owner:password` تغییر دهید؛
+  در production هنگام راه‌اندازی هشدار داده می‌شود.
+- محدودیت نرخ روی `/login` و `/ask-text` فعال است (پاسخ `429` با پیام فارسی).
+- پورت‌های ۸۰۰۰ و ۳۰۰۰ را از بیرون نبندید؛ فقط ۸۰/۴۴۳ باز باشد.
+- پشتیبان روزانه با `npm run db:backup` و تصاویر منو جداگانه بگیرید.
 - پوشهٔ `apps/api/uploads/` در گیت نادیده گرفته می‌شود.
 
 ---
@@ -296,7 +339,9 @@ cd apps\api
 | پورت ۳۰۰۰ یا ۸۰۰۰ اشغال است | سرویس دیگری را ببندید یا پورت را در `scripts/start-project.mjs` تغییر دهید |
 | پنل، منو را خالی نشان می‌دهد | `python -m app.db.seed_demo_menu` را اجرا کنید |
 | تغییر `API_INTERNAL_URL` اثر ندارد | این متغیر را در `apps/web/.env.local` بگذارید، نه ریشهٔ پروژه |
-| هشدار `multiple lockfiles` در Next.js | بی‌خطر است؛ با تنظیم `turbopack.root` در `next.config.ts` خاموش می‌شود |
+| پاسخ `429` برای مشتری | محدودیت نرخ فعال است؛ `ASK_RATE_LIMIT` را تنظیم کنید |
+| «دستیار موقتاً در دسترس نیست» (۵۰۳) | سرویس هوش مصنوعی قطع/کند است؛ کلید و مدل را بررسی کنید |
+| سرویس در production بالا نمی‌آید | خروجی `npm run check:prod` را ببینید (اغلب `SECRET_KEY`) |
 | پاسخ دستیار خطای ۴۰۱ می‌دهد | `AI_BASE_URL`/`AI_API_KEY`/`LLM_MODEL` با سرویس‌دهنده هم‌خوان نیست |
 
 ---
@@ -304,7 +349,9 @@ cd apps\api
 ## محدودهٔ فعلی
 
 **انجام‌شده:** منوی دیجیتال، دسته‌بندی، پنل مالک با احراز هویت، CRUD آیتم‌ها،
-تصاویر، QR، دستیار متنی با زمینهٔ گفتگو، چهار تم، اجرای یکپارچه.
+تصاویر، QR، دستیار متنی با زمینهٔ گفتگو، چهار تم، اجرای یکپارچه، و آماده‌سازی
+استقرار: اجرای تولیدی، محدودیت نرخ، مدیریت خطای LLM، `/health` واقعی،
+پشتیبان‌گیری، HTTPS با Caddy و CI.
 
 **در محدودهٔ نسخه‌های بعدی:**
 
@@ -317,6 +364,7 @@ cd apps\api
 
 ## مستندات بیشتر
 
+- [docs/DEPLOY.md](docs/DEPLOY.md) — استقرار روی سرور، HTTPS، systemd و پشتیبان‌گیری
 - [docs/menu.md](docs/menu.md) — مدل دادهٔ منو، قواعد قیمت/آلرژن و پیشنهاد آیتم
 - [docs/architecture.md](docs/architecture.md) — تصمیم‌های معماری
 

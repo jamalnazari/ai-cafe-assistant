@@ -1,3 +1,5 @@
+import logging
+from contextlib import asynccontextmanager
 from typing import Literal
 
 from fastapi import (
@@ -11,24 +13,29 @@ from fastapi import (
     UploadFile,
     status,
 )
+from fastapi.middleware.trustedhost import TrustedHostMiddleware
+from fastapi.responses import JSONResponse
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel, Field
-from sqlalchemy import func, select
+from sqlalchemy import func, select, text
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
-from app.db.session import get_db
+from app.db.session import AsyncSessionLocal, get_db
 from app.models.restaurant import RestaurantModel
 from app.models.menu import MenuItemModel
 from app.models.menu_category import MenuCategoryModel
 from app.models.user import UserModel
-from app.core.config import settings
+from app.core.config import DEFAULT_OWNER_PASSWORD, settings
+from app.core.security import verify_password
 from app.core.auth import (
     auth_service,
     clear_session_cookie,
     get_current_owner,
     set_session_cookie,
 )
+from app.core.rate_limit import enforce_ask_rate_limit, enforce_login_rate_limit
+from app.providers.llm import LLMUnavailableError
 from app.repositories.menu_repository import SqlAlchemyMenuRepository
 from app.schemas.auth import LoginRequest, LoginResponse, OwnerResponse
 from app.schemas.chat import TextQuestionRequest
@@ -43,10 +50,52 @@ from app.services.assistant_service import AssistantService
 from app.services.menu_image_service import menu_image_service
 from app.services.menu_recommendation import find_mentioned_items
 
+logger = logging.getLogger("cafe.api")
+
+# پیش از ساخت اپلیکیشن، تنظیمات حساس بررسی می‌شود تا سرویس با کلید ناایمن بالا نیاید.
+settings.validate_startup()
+
+
+async def warn_if_default_owner_password() -> None:
+    """در production یادآوری می‌کند رمز پیش‌فرض مالک هنوز تغییر نکرده است."""
+    if not settings.is_production:
+        return
+    try:
+        async with AsyncSessionLocal() as session:
+            owner = await session.scalar(
+                select(UserModel).where(UserModel.email == "owner@cafe.com")
+            )
+    except Exception as exc:  # noqa: BLE001 - نبود جدول نباید مانع بالا آمدن سرویس شود
+        logger.warning("بررسی رمز پیش‌فرض مالک ممکن نشد: %s", exc)
+        return
+
+    if owner is not None and verify_password(
+        DEFAULT_OWNER_PASSWORD, owner.password_hash
+    ):
+        logger.warning(
+            "رمز صاحب کافه هنوز رمز پیش‌فرض است. برای تغییر آن اجرا کنید: "
+            "python -m app.db.set_owner_password"
+        )
+
+
+@asynccontextmanager
+async def lifespan(_app: FastAPI):
+    await warn_if_default_owner_password()
+    yield
+
+
 app = FastAPI(
     title="Cafe Voice Assistant API",
-    version="0.1.0",
+    version=settings.VERSION,
+    lifespan=lifespan,
+    # در محیط production مستندات تعاملی API برای عموم بسته است.
+    docs_url=settings.docs_url,
+    redoc_url=settings.redoc_url,
+    openapi_url=settings.openapi_url,
 )
+
+if settings.allowed_hosts:
+    app.add_middleware(TrustedHostMiddleware, allowed_hosts=settings.allowed_hosts)
 
 settings.UPLOAD_DIR.mkdir(parents=True, exist_ok=True)
 app.mount(
@@ -58,6 +107,18 @@ app.mount(
 assistant_service = AssistantService()
 
 
+@app.exception_handler(Exception)
+async def unhandled_exception_handler(
+    request: Request, exc: Exception
+) -> JSONResponse:
+    """خطاهای پیش‌بینی‌نشده با پیام فارسی و بدون افشای جزئیات داخلی برگردانده می‌شوند."""
+    logger.exception("خطای پیش‌بینی‌نشده در مسیر %s", request.url.path)
+    return JSONResponse(
+        status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+        content={"detail": "خطای غیرمنتظره‌ای رخ داد؛ لطفاً دوباره تلاش کنید."},
+    )
+
+
 class QuestionResponse(BaseModel):
     transcript: str | None = None
     answer: str
@@ -67,8 +128,17 @@ class QuestionResponse(BaseModel):
 
 
 @app.get("/health")
-def health_check() -> dict[str, str]:
-    return {"status": "ok"}
+async def health_check(db: AsyncSession = Depends(get_db)) -> dict[str, str]:
+    """بررسی سلامت سرویس و اتصال دیتابیس (برای مانیتورینگ و پروکسی)."""
+    try:
+        await db.execute(text("SELECT 1"))
+    except Exception as exc:  # noqa: BLE001 - هر خطای دیتابیس یعنی سرویس ناسالم است
+        logger.exception("بررسی سلامت دیتابیس ناموفق بود: %s", exc)
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail="دیتابیس در دسترس نیست.",
+        ) from exc
+    return {"status": "ok", "database": "ok"}
 
 
 # --- احراز هویت صاحب کافه ---
@@ -77,6 +147,7 @@ async def login(
     body: LoginRequest,
     response: Response,
     db: AsyncSession = Depends(get_db),
+    _rate_limit: None = Depends(enforce_login_rate_limit),
 ) -> LoginResponse:
     user = await auth_service.authenticate_owner(
         db, str(body.email), body.password
@@ -125,7 +196,7 @@ async def get_restaurant_menu(
     menu = await repo.get_by_restaurant_slug(restaurant_slug)
 
     if menu is None:
-        raise HTTPException(status_code=404, detail="Restaurant not found")
+        raise HTTPException(status_code=404, detail="کافه یافت نشد.")
 
     return menu
 
@@ -447,16 +518,25 @@ async def ask_text_question(
     restaurant_slug: str,
     body: TextQuestionRequest,
     db: AsyncSession = Depends(get_db),
+    _rate_limit: None = Depends(enforce_ask_rate_limit),
 ) -> QuestionResponse:
     repo = SqlAlchemyMenuRepository(db)
     menu = await repo.get_by_restaurant_slug(restaurant_slug)
 
     if menu is None:
-        raise HTTPException(status_code=404, detail="Restaurant not found")
+        raise HTTPException(status_code=404, detail="کافه یافت نشد.")
 
-    answer = await assistant_service.answer_text_question(
-        menu, body.question, body.history
-    )
+    try:
+        answer = await assistant_service.answer_text_question(
+            menu, body.question, body.history
+        )
+    except LLMUnavailableError as exc:
+        logger.warning("دستیار نتوانست پاسخ تولید کند: %s", exc)
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail="دستیار هوشمند موقتاً در دسترس نیست؛ لطفاً چند لحظه بعد دوباره بپرسید.",
+        ) from exc
+
     recommended_items = find_mentioned_items(menu, answer)
     return QuestionResponse(
         answer=answer,
@@ -473,17 +553,26 @@ async def ask_voice_question(
     restaurant_slug: str,
     file: UploadFile = File(...),
     db: AsyncSession = Depends(get_db),
+    _rate_limit: None = Depends(enforce_ask_rate_limit),
 ) -> QuestionResponse:
     repo = SqlAlchemyMenuRepository(db)
     menu = await repo.get_by_restaurant_slug(restaurant_slug)
 
     if menu is None:
-        raise HTTPException(status_code=404, detail="Restaurant not found")
+        raise HTTPException(status_code=404, detail="کافه یافت نشد.")
 
     audio_bytes = await file.read()
-    transcript, answer = await assistant_service.answer_voice_question(
-        menu, audio_bytes, file.filename or "audio.webm"
-    )
+    try:
+        transcript, answer = await assistant_service.answer_voice_question(
+            menu, audio_bytes, file.filename or "audio.webm"
+        )
+    except LLMUnavailableError as exc:
+        logger.warning("دستیار نتوانست پاسخ صوتی تولید کند: %s", exc)
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail="دستیار هوشمند موقتاً در دسترس نیست؛ لطفاً چند لحظه بعد دوباره بپرسید.",
+        ) from exc
+
     recommended_items = find_mentioned_items(menu, answer)
     return QuestionResponse(
         transcript=transcript,

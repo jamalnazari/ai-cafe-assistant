@@ -20,7 +20,7 @@ def set_session_cookie(
         max_age=settings.SESSION_TTL_SECONDS,
         expires=expires_at,
         path="/",
-        secure=settings.SESSION_COOKIE_SECURE,
+        secure=settings.session_cookie_secure,
         httponly=True,
         samesite="lax",
     )
@@ -30,7 +30,7 @@ def clear_session_cookie(response: Response) -> None:
     response.delete_cookie(
         key=settings.SESSION_COOKIE_NAME,
         path="/",
-        secure=settings.SESSION_COOKIE_SECURE,
+        secure=settings.session_cookie_secure,
         httponly=True,
         samesite="lax",
     )

@@ -1,0 +1,34 @@
+# نمونهٔ پیکربندی Caddy برای کافه‌یار
+#
+# استفاده:
+#   1) دامنه را به IP سرور وصل کنید (رکورد A/AAAA).
+#   2) این فایل را در /etc/caddy/Caddyfile کپی و DOMAIN را جایگزین کنید.
+#   3) systemctl reload caddy
+#
+# Caddy گواهی HTTPS را خودکار می‌گیرد و تمدید می‌کند.
+
+{
+	email admin@example.com
+}
+
+cafe.example.com {
+	encode zstd gzip
+
+	# هدرهای امنیتی پایه (HSTS را Caddy خودکار اضافه می‌کند)
+	header {
+		Strict-Transport-Security "max-age=31536000; includeSubDomains"
+		X-Content-Type-Options "nosniff"
+		Referrer-Policy "strict-origin-when-cross-origin"
+		-Server
+	}
+
+	# درخواست‌های API مستقیم به FastAPI می‌روند (بدون واسطهٔ Next.js)
+	handle /api/* {
+		reverse_proxy 127.0.0.1:8000
+	}
+
+	# بقیهٔ مسیرها به Next.js
+	handle {
+		reverse_proxy 127.0.0.1:3000
+	}
+}

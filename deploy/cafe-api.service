@@ -1,0 +1,31 @@
+# نمونهٔ unit برای FastAPI
+# مسیرها و نام کاربر را با سرور خودتان هماهنگ کنید.
+#
+# نصب:
+#   sudo cp deploy/cafe-api.service /etc/systemd/system/
+#   sudo systemctl daemon-reload
+#   sudo systemctl enable --now cafe-api
+
+[Unit]
+Description=Kafe-yar API (FastAPI)
+After=network.target
+
+[Service]
+Type=simple
+User=www-data
+Group=www-data
+WorkingDirectory=/srv/ai-cafe-assistant/apps/api
+EnvironmentFile=/srv/ai-cafe-assistant/apps/api/.env
+Environment=ENVIRONMENT=production
+ExecStart=/srv/ai-cafe-assistant/apps/api/.venv/bin/python -m uvicorn main:app --host 127.0.0.1 --port 8000 --proxy-headers --forwarded-allow-ips=127.0.0.1
+Restart=always
+RestartSec=3
+# سخت‌سازی
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectSystem=full
+ProtectHome=true
+ReadWritePaths=/srv/ai-cafe-assistant/apps/api /var/backups/ai-cafe-assistant /var/lib/ai-cafe-assistant
+
+[Install]
+WantedBy=multi-user.target

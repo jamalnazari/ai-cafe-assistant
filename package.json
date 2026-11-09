@@ -4,6 +4,15 @@
   "private": true,
   "description": "Single-tenant Persian cafe assistant",
   "scripts": {
-    "start": "node scripts/start-project.mjs"
+    "start": "node scripts/start-project.mjs",
+    "start:prod": "npm run build && node scripts/start-project.mjs --prod",
+    "build": "npm --prefix apps/web run build",
+    "test": "node scripts/run-api-command.mjs -m pytest -q",
+    "lint": "npm --prefix apps/web run lint",
+    "db:init": "node scripts/run-api-command.mjs -m app.db.init_db",
+    "db:seed": "node scripts/run-api-command.mjs -m app.db.seed_demo_menu",
+    "db:backup": "node scripts/run-api-command.mjs -m app.db.backup_db",
+    "owner:password": "node scripts/run-api-command.mjs -m app.db.set_owner_password",
+    "check:prod": "node scripts/run-api-command.mjs -m app.core.check_config"
   }
 }
