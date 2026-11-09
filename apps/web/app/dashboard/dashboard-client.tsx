@@ -79,7 +79,7 @@ function StatCard({
   value: number;
 }) {
   return (
-    <div className="rounded-2xl border border-line bg-surface p-3.5 shadow-card">
+    <div className="rounded-2xl border border-line bg-surface p-3 shadow-card sm:p-3.5">
       <span className="grid h-8 w-8 place-items-center rounded-xl bg-primary-soft text-primary">
         <Icon className="h-4 w-4" />
       </span>
@@ -147,6 +147,9 @@ export default function DashboardClient({
     null,
   );
   const lastSyncedBrandName = useRef<string | null>(null);
+
+  // در موبایل فقط یکی از دو بخش «منو» یا «مدیریت کافه» نمایش داده می‌شود.
+  const [mobilePanel, setMobilePanel] = useState<"menu" | "settings">("menu");
 
   const items = useMemo(() => menu?.items ?? [], [menu]);
   const restaurantSlug = menu?.restaurant_slug ?? "demo";
@@ -752,9 +755,9 @@ export default function DashboardClient({
   );
 
   return (
-    <div className="min-h-screen pb-16">
+    <div className="min-h-screen pb-24 lg:pb-16">
       <header className="sticky top-0 z-40 border-b border-line/60 bg-canvas/80 backdrop-blur-xl print:hidden">
-        <div className="mx-auto flex h-16 max-w-6xl items-center justify-between gap-3 px-4">
+        <div className="mx-auto flex h-16 max-w-6xl items-center justify-between gap-2 px-3 sm:gap-3 sm:px-4">
           <div className="flex min-w-0 items-center gap-2.5">
             <span className="relative grid h-10 w-10 shrink-0 place-items-center overflow-hidden rounded-2xl bg-primary text-on-primary shadow-md shadow-primary/25">
               {menu?.logo_url ? (
@@ -770,11 +773,11 @@ export default function DashboardClient({
               )}
             </span>
             <div className="min-w-0">
-              <h1 className="truncate text-sm font-black">
+              <h1 className="max-w-[9.5rem] truncate text-[13px] font-black sm:max-w-none sm:text-sm">
                 {menu?.restaurant_name ?? "پنل مدیریت کافه"}
               </h1>
               <p
-                className="truncate text-[10px] text-ink-faint"
+                className="hidden truncate text-[10px] text-ink-faint sm:block"
                 dir="ltr"
                 title={ownerEmail}
               >
@@ -800,7 +803,7 @@ export default function DashboardClient({
               disabled={loggingOut}
               aria-label="خروج از حساب"
               title="خروج از حساب"
-              className="grid h-10 w-10 place-items-center rounded-full border border-line bg-surface text-ink-soft shadow-sm transition-colors hover:border-danger/40 hover:text-danger disabled:opacity-50"
+              className="grid h-9 w-9 place-items-center rounded-full border border-line bg-surface text-ink-soft shadow-sm transition-colors hover:border-danger/40 hover:text-danger disabled:opacity-50 sm:h-10 sm:w-10"
             >
               {loggingOut ? (
                 <LoaderCircle className="h-4 w-4 animate-spin" aria-hidden="true" />
@@ -824,12 +827,12 @@ export default function DashboardClient({
               در منوی مشتری دیده می‌شود.
             </p>
           </div>
-          <div className="flex gap-2">
+          <div className="flex gap-2 sm:justify-end">
             <Link
               href={`/r/${restaurantSlug}`}
               target="_blank"
               rel="noreferrer"
-              className="inline-flex items-center gap-1.5 rounded-2xl border border-line bg-surface px-3.5 py-3 text-[11px] font-bold text-ink-soft shadow-sm transition-colors hover:border-primary/40 hover:text-primary md:hidden"
+              className="inline-flex flex-1 items-center justify-center gap-1.5 rounded-2xl border border-line bg-surface px-3 py-3 text-[11px] font-bold text-ink-soft shadow-sm transition-colors hover:border-primary/40 hover:text-primary sm:flex-none md:hidden"
             >
               <ExternalLink className="h-4 w-4" aria-hidden="true" />
               پیش‌نمایش
@@ -843,7 +846,7 @@ export default function DashboardClient({
                   ? "ابتدا یک دسته‌بندی بسازید"
                   : "افزودن آیتم جدید"
               }
-              className="inline-flex items-center gap-1.5 rounded-2xl bg-primary px-4 py-3 text-[11px] font-bold text-on-primary shadow-lg shadow-primary/20 transition-all hover:bg-primary-strong active:scale-[0.99] disabled:cursor-not-allowed disabled:opacity-50"
+              className="inline-flex flex-1 items-center justify-center gap-1.5 rounded-2xl bg-primary px-4 py-3 text-[11px] font-bold text-on-primary shadow-lg shadow-primary/20 transition-all hover:bg-primary-strong active:scale-[0.99] disabled:cursor-not-allowed disabled:opacity-50 sm:flex-none"
             >
               <Plus className="h-4 w-4" aria-hidden="true" />
               افزودن آیتم جدید
@@ -892,8 +895,56 @@ export default function DashboardClient({
           />
         </div>
 
+        {/* در موبایل فقط یک بخش در هر لحظه؛ در دسکتاپ هر دو ستون */}
+        <div className="sticky top-16 z-30 -mx-4 border-y border-line/60 bg-canvas/95 px-4 py-2 backdrop-blur-xl lg:hidden">
+          <div
+            role="tablist"
+            aria-label="بخش‌های پنل"
+            className="grid grid-cols-2 gap-1 rounded-2xl bg-surface-muted p-1"
+          >
+            <button
+              type="button"
+              role="tab"
+              aria-selected={mobilePanel === "menu"}
+              onClick={() => setMobilePanel("menu")}
+              className={cn(
+                "inline-flex items-center justify-center gap-1.5 rounded-xl px-3 py-2.5 text-[11px] font-bold transition-colors",
+                mobilePanel === "menu"
+                  ? "bg-surface text-primary shadow-sm"
+                  : "text-ink-soft",
+              )}
+            >
+              <UtensilsCrossed className="h-4 w-4" aria-hidden="true" />
+              منو
+              <span className="rounded-full bg-primary-soft px-1.5 py-0.5 text-[9px] font-black text-primary tabular-nums">
+                {formatNumber(items.length)}
+              </span>
+            </button>
+            <button
+              type="button"
+              role="tab"
+              aria-selected={mobilePanel === "settings"}
+              onClick={() => setMobilePanel("settings")}
+              className={cn(
+                "inline-flex items-center justify-center gap-1.5 rounded-xl px-3 py-2.5 text-[11px] font-bold transition-colors",
+                mobilePanel === "settings"
+                  ? "bg-surface text-primary shadow-sm"
+                  : "text-ink-soft",
+              )}
+            >
+              <Store className="h-4 w-4" aria-hidden="true" />
+              مدیریت کافه
+            </button>
+          </div>
+        </div>
+
         <div className="grid gap-5 lg:grid-cols-[minmax(0,1fr)_21rem] lg:items-start">
-          <section className="order-2 overflow-visible rounded-3xl border border-line bg-surface shadow-card lg:order-1">
+          <section
+            className={cn(
+              "order-2 overflow-visible rounded-3xl border border-line bg-surface shadow-card lg:order-1",
+              mobilePanel !== "menu" && "hidden lg:block",
+            )}
+          >
             <div className="flex items-center justify-between gap-3 px-4 pb-3 pt-4 sm:px-5">
               <div className="min-w-0">
                 <h3 className="text-sm font-black">آیتم‌های منو</h3>
@@ -921,7 +972,7 @@ export default function DashboardClient({
               navRef={navRef}
               tone="surface"
               sticky
-              topClassName="top-16"
+              topClassName="top-[7.5rem] lg:top-16"
               className="border-y border-line/60"
               containerClassName="flex items-center gap-2 px-4 py-2.5 sm:px-5"
               action={
@@ -962,7 +1013,7 @@ export default function DashboardClient({
                   <section
                     key={categoryName}
                     data-category-name={categoryName}
-                    className="scroll-mt-36 space-y-3"
+                    className="scroll-mt-48 space-y-3 lg:scroll-mt-36"
                   >
                     <div className="flex items-center gap-2.5">
                       <span className="grid h-7 w-7 shrink-0 place-items-center rounded-lg border border-line bg-surface-muted text-primary">
@@ -1115,7 +1166,12 @@ export default function DashboardClient({
             </div>
           </section>
 
-          <aside className="order-1 space-y-4 lg:order-2 lg:sticky lg:top-20">
+          <aside
+            className={cn(
+              "order-1 space-y-4 lg:order-2 lg:sticky lg:top-20",
+              mobilePanel !== "settings" && "hidden lg:block",
+            )}
+          >
             <section className="rounded-3xl border border-line bg-surface shadow-card">
               <div className="flex items-center gap-2.5 border-b border-line/60 px-4 py-3.5">
                 <span className="grid h-8 w-8 place-items-center rounded-xl bg-primary-soft text-primary">
@@ -1475,6 +1531,7 @@ export default function DashboardClient({
         open={showItemModal}
         onClose={closeItemModal}
         labelledBy="item-form-title"
+        placement="sheet"
         className="sm:max-w-md"
       >
         <form onSubmit={handleSubmitItem}>
@@ -1707,6 +1764,7 @@ export default function DashboardClient({
         open={itemPendingDelete !== null}
         onClose={() => !deletingItem && setItemPendingDelete(null)}
         labelledBy="delete-item-title"
+        placement="sheet"
         showClose={false}
         className="max-w-sm"
       >
@@ -1753,6 +1811,7 @@ export default function DashboardClient({
         open={categoryPendingDelete !== null}
         onClose={closeCategoryDelete}
         labelledBy="delete-category-title"
+        placement="sheet"
         showClose={false}
         className="max-w-md"
       >
@@ -1894,6 +1953,17 @@ export default function DashboardClient({
           </div>
         </div>
       </Modal>
+
+      {/* دکمهٔ شناور افزودن آیتم برای موبایل */}
+      <button
+        type="button"
+        onClick={() => openCreateModal()}
+        disabled={categoryNames.length === 0}
+        className="fixed bottom-5 left-4 z-40 inline-flex items-center gap-1.5 rounded-2xl bg-primary px-4 py-3 text-[11px] font-bold text-on-primary shadow-lg shadow-primary/30 transition-transform active:scale-95 disabled:cursor-not-allowed disabled:opacity-50 lg:hidden print:hidden"
+      >
+        <Plus className="h-4 w-4" aria-hidden="true" />
+        آیتم جدید
+      </button>
 
       <ToastViewport toasts={toasts} onDismiss={dismiss} />
 

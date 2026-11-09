@@ -116,7 +116,9 @@ export default function MenuChat({
             priority
             className="object-cover"
           />
-          <div className="absolute inset-0 bg-canvas/88 backdrop-blur-[3px]" />
+          {/* لایهٔ روشن ملایم تا تصویر کافه دیده شود و متن هم خوانا بماند */}
+          <div className="absolute inset-0 bg-canvas/55" />
+          <div className="absolute inset-0 bg-gradient-to-b from-canvas/85 via-canvas/20 to-canvas/80" />
         </div>
       )}
       <header className="sticky top-0 z-40 border-b border-line/60 bg-canvas/85 backdrop-blur-xl">
