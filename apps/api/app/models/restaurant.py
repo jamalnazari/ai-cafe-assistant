@@ -11,6 +11,11 @@ class RestaurantModel(Base):
     id: Mapped[int] = mapped_column(primary_key=True, autoincrement=True)
     slug: Mapped[str] = mapped_column(String(50), unique=True, index=True, nullable=False)
     name: Mapped[str] = mapped_column(String(100), nullable=False)
+    # تصاویر هویت کافه که صاحب کافه از پنل بارگذاری می‌کند
+    logo_filename: Mapped[str | None] = mapped_column(String(255), nullable=True)
+    background_filename: Mapped[str | None] = mapped_column(
+        String(255), nullable=True
+    )
     is_active: Mapped[bool] = mapped_column(Boolean, default=True)
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True),

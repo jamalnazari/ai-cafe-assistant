@@ -8,6 +8,11 @@ from app.models.menu_category import MenuCategoryModel
 from app.models.user import UserModel
 from app.models.auth_session import AuthSessionModel  # noqa: F401 - ثبت مدل در metadata
 from app.core.security import hash_password
+from app.services.branding_image_service import (
+    SAMPLE_BACKGROUND_FILE,
+    SAMPLE_LOGO_FILE,
+    branding_image_service,
+)
 
 
 async def backfill_menu_categories(session: AsyncSession) -> None:
@@ -33,6 +38,34 @@ async def backfill_menu_categories(session: AsyncSession) -> None:
                 MenuCategoryModel(restaurant_id=restaurant_id, name=category_name)
             )
             existing_categories.add(category_key)
+
+
+async def apply_sample_branding(session: AsyncSession) -> None:
+    """اگر کافه هنوز لوگو/پس‌زمینه ندارد، تصاویر نمونهٔ پروژه را نصب می‌کند."""
+    restaurant = (
+        await session.execute(
+            select(RestaurantModel).where(RestaurantModel.slug == "demo")
+        )
+    ).scalar_one_or_none()
+    if restaurant is None:
+        return
+
+    changed = False
+    if not restaurant.logo_filename:
+        sample_logo = branding_image_service.install_sample(SAMPLE_LOGO_FILE)
+        if sample_logo:
+            restaurant.logo_filename = sample_logo
+            changed = True
+    if not restaurant.background_filename:
+        sample_background = branding_image_service.install_sample(
+            SAMPLE_BACKGROUND_FILE
+        )
+        if sample_background:
+            restaurant.background_filename = sample_background
+            changed = True
+
+    if changed:
+        print("تصاویر نمونهٔ هویت کافه (لوگو و پس‌زمینه) نصب شد.")
 
 
 async def init_db():
@@ -71,6 +104,24 @@ async def init_db():
             await conn.execute(
                 text(
                     "ALTER TABLE menu_categories ADD COLUMN sort_order INTEGER NOT NULL DEFAULT 0"
+                )
+            )
+
+        restaurant_columns = await conn.run_sync(
+            lambda sync_conn: {
+                column["name"]
+                for column in inspect(sync_conn).get_columns("restaurants")
+            }
+        )
+        # هویت بصری کافه (لوگو و تصویر پس‌زمینه)
+        if "logo_filename" not in restaurant_columns:
+            await conn.execute(
+                text("ALTER TABLE restaurants ADD COLUMN logo_filename VARCHAR(255)")
+            )
+        if "background_filename" not in restaurant_columns:
+            await conn.execute(
+                text(
+                    "ALTER TABLE restaurants ADD COLUMN background_filename VARCHAR(255)"
                 )
             )
 
@@ -170,6 +221,7 @@ async def init_db():
 
         await session.flush()
         await backfill_menu_categories(session)
+        await apply_sample_branding(session)
         await session.commit()
 
 
