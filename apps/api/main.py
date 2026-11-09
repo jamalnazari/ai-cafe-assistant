@@ -21,7 +21,8 @@ from sqlalchemy import func, select, text
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
-from app.db.session import AsyncSessionLocal, get_db
+from app.db.init_db import ensure_schema_columns
+from app.db.session import AsyncSessionLocal, engine, get_db
 from app.models.restaurant import RestaurantModel
 from app.models.menu import MenuItemModel
 from app.models.menu_category import MenuCategoryModel
@@ -80,8 +81,20 @@ async def warn_if_default_owner_password() -> None:
         )
 
 
+async def apply_schema_updates() -> None:
+    """دیتابیس‌های قبلی را بدون حذف داده با ستون‌های جدید هم‌خوان می‌کند."""
+    if not settings.AUTO_MIGRATE_SCHEMA:
+        return
+    try:
+        async with engine.begin() as connection:
+            await ensure_schema_columns(connection)
+    except Exception as exc:  # noqa: BLE001 - نبود دیتابیس نباید سرویس را بخواباند
+        logger.error("به‌روزرسانی ساختار دیتابیس ناموفق بود: %s", exc)
+
+
 @asynccontextmanager
 async def lifespan(_app: FastAPI):
+    await apply_schema_updates()
     await warn_if_default_owner_password()
     yield
 
