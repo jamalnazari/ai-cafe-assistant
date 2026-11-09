@@ -14,6 +14,7 @@ import {
   Flame,
   Image as ImageIcon,
   ImagePlus,
+  Info,
   LoaderCircle,
   LogOut,
   Pencil,
@@ -148,6 +149,12 @@ export default function DashboardClient({
   );
   const lastSyncedBrandName = useRef<string | null>(null);
 
+  // --- دربارهٔ مجموعه (توضیحاتی که دستیار هوشمند هم می‌خواند) ---
+  const [aboutText, setAboutText] = useState("");
+  const [savingAbout, setSavingAbout] = useState(false);
+  const [aboutError, setAboutError] = useState<string | null>(null);
+  const lastSyncedAbout = useRef<string | null>(null);
+
   // در موبایل فقط یکی از دو بخش «منو» یا «مدیریت کافه» نمایش داده می‌شود.
   const [mobilePanel, setMobilePanel] = useState<"menu" | "settings">("menu");
 
@@ -229,6 +236,13 @@ export default function DashboardClient({
     setBrandName(name);
   }, [menu?.restaurant_name]);
 
+  useEffect(() => {
+    const about = menu?.restaurant_about ?? "";
+    if (about === lastSyncedAbout.current) return;
+    lastSyncedAbout.current = about;
+    setAboutText(about);
+  }, [menu?.restaurant_about]);
+
   const saveBrandName = async (event: React.FormEvent) => {
     event.preventDefault();
     const name = brandName.trim();
@@ -257,6 +271,45 @@ export default function DashboardClient({
       );
     } finally {
       setSavingBrandName(false);
+    }
+  };
+
+  const saveAbout = async (event: React.FormEvent) => {
+    event.preventDefault();
+    if (savingAbout) return;
+
+    setSavingAbout(true);
+    setAboutError(null);
+    try {
+      const response = await fetch(`/api/v1/restaurants/${restaurantSlug}`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ about: aboutText }),
+        credentials: "same-origin",
+      });
+      if (handleExpiredSession(response)) return;
+      if (!response.ok) {
+        throw new Error(
+          await getResponseError(response, "ذخیرهٔ توضیحات مجموعه ناموفق بود."),
+        );
+      }
+      const data = (await response.json()) as { about?: string | null };
+      lastSyncedAbout.current = data.about ?? "";
+      setAboutText(data.about ?? "");
+      await fetchMenu();
+      push(
+        data.about
+          ? "توضیحات مجموعه ذخیره شد و در پاسخ‌های دستیار در نظر گرفته می‌شود."
+          : "توضیحات مجموعه پاک شد.",
+      );
+    } catch (error) {
+      setAboutError(
+        error instanceof Error
+          ? error.message
+          : "ذخیرهٔ توضیحات مجموعه ناموفق بود.",
+      );
+    } finally {
+      setSavingAbout(false);
     }
   };
 
@@ -755,7 +808,7 @@ export default function DashboardClient({
   );
 
   return (
-    <div className="min-h-screen pb-24 lg:pb-16">
+    <div className="min-h-screen overflow-x-clip pb-24 lg:pb-16">
       <header className="sticky top-0 z-40 border-b border-line/60 bg-canvas/80 backdrop-blur-xl print:hidden">
         <div className="mx-auto flex h-16 max-w-6xl items-center justify-between gap-2 px-3 sm:gap-3 sm:px-4">
           <div className="flex min-w-0 items-center gap-2.5">
@@ -896,7 +949,7 @@ export default function DashboardClient({
         </div>
 
         {/* در موبایل فقط یک بخش در هر لحظه؛ در دسکتاپ هر دو ستون */}
-        <div className="sticky top-16 z-30 -mx-4 border-y border-line/60 bg-canvas/95 px-4 py-2 backdrop-blur-xl lg:hidden">
+        <div className="sticky top-16 z-30 rounded-2xl border border-line/60 bg-canvas/95 p-1.5 backdrop-blur-xl lg:hidden">
           <div
             role="tablist"
             aria-label="بخش‌های پنل"
@@ -941,7 +994,7 @@ export default function DashboardClient({
         <div className="grid gap-5 lg:grid-cols-[minmax(0,1fr)_21rem] lg:items-start">
           <section
             className={cn(
-              "order-2 overflow-visible rounded-3xl border border-line bg-surface shadow-card lg:order-1",
+              "order-2 min-w-0 overflow-visible rounded-3xl border border-line bg-surface shadow-card lg:order-1",
               mobilePanel !== "menu" && "hidden lg:block",
             )}
           >
@@ -1068,7 +1121,7 @@ export default function DashboardClient({
                             </div>
                             <div className="min-w-0 flex-1">
                               <div className="flex flex-wrap items-center gap-1.5">
-                                <h5 className="text-xs font-black">
+                                <h5 className="min-w-0 break-words text-xs font-black">
                                   {item.name}
                                 </h5>
                                 {item.is_spicy && (
@@ -1081,7 +1134,7 @@ export default function DashboardClient({
                                   </span>
                                 )}
                               </div>
-                              <p className="mt-0.5 line-clamp-1 text-[10px] text-ink-soft">
+                              <p className="mt-0.5 line-clamp-1 break-words text-[10px] text-ink-soft">
                                 {item.description || "بدون توضیحات"}
                               </p>
                               <div className="mt-1.5 flex flex-wrap items-baseline gap-1">
@@ -1168,7 +1221,7 @@ export default function DashboardClient({
 
           <aside
             className={cn(
-              "order-1 space-y-4 lg:order-2 lg:sticky lg:top-20",
+              "order-1 min-w-0 space-y-4 lg:order-2 lg:sticky lg:top-20",
               mobilePanel !== "settings" && "hidden lg:block",
             )}
           >
@@ -1381,6 +1434,84 @@ export default function DashboardClient({
                 )}
               </div>
             </section>
+
+            <section className="rounded-3xl border border-line bg-surface shadow-card">
+              <div className="flex items-center gap-2.5 border-b border-line/60 px-4 py-3.5">
+                <span className="grid h-8 w-8 place-items-center rounded-xl bg-primary-soft text-primary">
+                  <Info className="h-4 w-4" aria-hidden="true" />
+                </span>
+                <div className="min-w-0 flex-1">
+                  <h3 className="text-sm font-black">دربارهٔ مجموعه</h3>
+                  <p className="text-[10px] text-ink-faint">
+                    دستیار هوشمند این توضیحات را هم می‌خواند
+                  </p>
+                </div>
+              </div>
+
+              <form onSubmit={saveAbout} className="space-y-3 p-4">
+                <label
+                  htmlFor="about-text"
+                  className="text-[10px] font-bold text-ink-soft"
+                >
+                  معرفی کافه یا رستوران
+                </label>
+                <textarea
+                  id="about-text"
+                  value={aboutText}
+                  onChange={(event) => {
+                    setAboutText(event.target.value);
+                    setAboutError(null);
+                  }}
+                  rows={6}
+                  maxLength={1500}
+                  disabled={savingAbout}
+                  dir="rtl"
+                  placeholder={
+                    "مثلاً: کافه‌ای دنج با فضای باز و تراس، مناسب کار و مطالعه.\nپارکینگ رایگان، اینترنت پرسرعت و منوی گیاهی داریم.\nساعت کاری: ۹ صبح تا ۲۳ شب."
+                  }
+                  className="w-full resize-y rounded-xl border border-line bg-surface-muted px-3 py-2.5 text-[11px] leading-6 text-ink outline-none transition-all placeholder:text-ink-faint focus:border-primary focus:ring-4 focus:ring-primary/15 disabled:opacity-60"
+                />
+                <div className="flex items-center justify-between gap-2">
+                  <span className="text-[10px] tabular-nums text-ink-faint">
+                    {formatNumber(aboutText.length)} / ۱۵۰۰
+                  </span>
+                  <button
+                    type="submit"
+                    disabled={
+                      savingAbout || aboutText === (menu?.restaurant_about ?? "")
+                    }
+                    className="inline-flex items-center gap-1 rounded-xl bg-primary px-3 py-2.5 text-[10px] font-bold text-on-primary transition-colors hover:bg-primary-strong disabled:cursor-not-allowed disabled:opacity-50"
+                  >
+                    {savingAbout ? (
+                      <LoaderCircle
+                        className="h-3.5 w-3.5 animate-spin"
+                        aria-hidden="true"
+                      />
+                    ) : (
+                      <Check className="h-3.5 w-3.5" aria-hidden="true" />
+                    )}
+                    ذخیرهٔ توضیحات
+                  </button>
+                </div>
+
+                {aboutError && (
+                  <p
+                    role="alert"
+                    className="rounded-xl border border-danger/25 bg-danger-soft px-2.5 py-2 text-[10px] font-bold text-danger"
+                  >
+                    {aboutError}
+                  </p>
+                )}
+
+                <p className="text-[10px] leading-5 text-ink-faint">
+                  هر چیزی که دوست دارید مشتری بداند اینجا بنویسید: ساعت کاری،
+                  آدرس، فضا، پارکینگ، رزرو، منوی گیاهی و مانند آن. اگر پاسخی در
+                  این متن نباشد، دستیار حدس نمی‌زند و مشتری را به پرسنل ارجاع
+                  می‌دهد.
+                </p>
+              </form>
+            </section>
+
             <section className="rounded-3xl border border-line bg-surface shadow-card">
               <div className="flex items-center gap-2.5 border-b border-line/60 px-4 py-3.5">
                 <span className="grid h-8 w-8 place-items-center rounded-xl bg-primary-soft text-primary">

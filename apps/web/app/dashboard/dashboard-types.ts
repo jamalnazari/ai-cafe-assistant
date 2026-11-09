@@ -13,6 +13,7 @@ export interface RestaurantMenu {
   restaurant_name: string;
   logo_url?: string | null;
   background_url?: string | null;
+  restaurant_about?: string | null;
   categories?: string[];
   items: MenuItem[];
 }

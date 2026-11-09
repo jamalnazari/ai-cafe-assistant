@@ -1,4 +1,4 @@
-"""تست‌های هویت کافه: تغییر نام، لوگو و تصویر پس‌زمینه توسط صاحب کافه."""
+"""تست‌های هویت کافه: نام، لوگو، پس‌زمینه و توضیحات «دربارهٔ مجموعه»."""
 
 import asyncio
 import base64
@@ -310,8 +310,131 @@ async def test_schema_upgrade_adds_branding_columns_to_legacy_database(tmp_path)
             text("SELECT name FROM restaurants WHERE slug = 'demo'")
         )
 
-    assert {"logo_filename", "background_filename"} <= restaurant_columns
+    assert {"logo_filename", "background_filename", "about_text"} <= restaurant_columns
     assert {"image_filename", "aliases", "sort_order"} <= menu_columns
     assert legacy_name == "کافه قدیمی"
 
     await engine.dispose()
+
+
+# --- دربارهٔ مجموعه (about) ---
+
+ABOUT_SAMPLE = (
+    "کافه‌ای دنج با فضای باز و تراس، مناسب کار و مطالعه.\n"
+    "پارکینگ رایگان، اینترنت پرسرعت و منوی گیاهی داریم.\n"
+    "ساعت کاری: هر روز ۹ صبح تا ۲۳ شب."
+)
+
+
+def test_owner_can_save_about_text(branding_context):
+    client, _uploads = branding_context
+    login(client)
+
+    response = client.patch(
+        "/api/v1/restaurants/demo", json={"about": ABOUT_SAMPLE}
+    )
+
+    assert response.status_code == 200
+    assert response.json()["about"] == ABOUT_SAMPLE
+    # نام کافه نباید با ذخیرهٔ توضیحات تغییر کند.
+    assert menu_of(client)["restaurant_name"] == "کافهٔ آزمایشی"
+    assert menu_of(client)["restaurant_about"] == ABOUT_SAMPLE
+
+
+def test_about_is_cleaned_and_can_be_cleared(branding_context):
+    client, _uploads = branding_context
+    login(client)
+
+    messy = client.patch(
+        "/api/v1/restaurants/demo",
+        json={"about": "  خط اول  \n\n   \n خط دوم "},
+    )
+    assert messy.status_code == 200
+    assert messy.json()["about"] == "خط اول\nخط دوم"
+
+    cleared = client.patch("/api/v1/restaurants/demo", json={"about": "   "})
+    assert cleared.status_code == 200
+    assert cleared.json()["about"] is None
+    assert menu_of(client)["restaurant_about"] is None
+
+
+def test_about_rejects_too_long_text(branding_context):
+    client, _uploads = branding_context
+    login(client)
+
+    response = client.patch(
+        "/api/v1/restaurants/demo", json={"about": "ا" * 1501}
+    )
+
+    assert response.status_code == 422
+
+
+def test_about_requires_owner_session(branding_context):
+    client, _uploads = branding_context
+
+    response = client.patch("/api/v1/restaurants/demo", json={"about": ABOUT_SAMPLE})
+
+    assert response.status_code == 401
+
+
+def test_empty_update_body_is_rejected(branding_context):
+    client, _uploads = branding_context
+    login(client)
+
+    response = client.patch("/api/v1/restaurants/demo", json={})
+
+    assert response.status_code == 422
+
+
+def test_about_text_is_injected_into_assistant_prompt():
+    from app.schemas.menu import MenuItem, Price, RestaurantMenu
+    from app.services.assistant_service import AssistantService
+
+    menu = RestaurantMenu(
+        restaurant_slug="demo",
+        restaurant_name="کافهٔ آزمایشی",
+        restaurant_about=ABOUT_SAMPLE,
+        items=[
+            MenuItem(
+                id="latte",
+                name="لاته",
+                category="نوشیدنی گرم",
+                description="",
+                price=Price(amount=1_450_000, currency="IRR"),
+            )
+        ],
+    )
+
+    # بدون ساخت providerها؛ فقط منطق ساخت پرامپت بررسی می‌شود.
+    service = object.__new__(AssistantService)
+    prompt = service._build_system_prompt(menu)
+
+    assert "پارکینگ رایگان" in prompt
+    assert "۹." in prompt
+    assert '"about"' in prompt
+
+
+def test_about_null_in_prompt_when_not_registered():
+    from app.schemas.menu import MenuItem, Price, RestaurantMenu
+    from app.services.assistant_service import AssistantService
+
+    menu = RestaurantMenu(
+        restaurant_slug="demo",
+        restaurant_name="کافهٔ آزمایشی",
+        items=[
+            MenuItem(
+                id="latte",
+                name="لاته",
+                category="نوشیدنی گرم",
+                description="",
+                price=Price(amount=1_450_000, currency="IRR"),
+            )
+        ],
+    )
+
+    service = object.__new__(AssistantService)
+    payload = service._menu_payload(menu)
+    prompt = service._build_system_prompt(menu)
+
+    assert payload["restaurant"]["about"] is None
+    assert '"about": null' in prompt
