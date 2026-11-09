@@ -86,7 +86,20 @@ export default function CustomerMenu({
   };
 
   return (
-    <div className="min-h-screen pb-44">
+    <div className="relative min-h-screen pb-44">
+      {menu.background_url && (
+        <div aria-hidden="true" className="pointer-events-none fixed inset-0 z-0">
+          <Image
+            src={menu.background_url}
+            alt=""
+            fill
+            unoptimized
+            priority
+            className="object-cover"
+          />
+          <div className="absolute inset-0 bg-canvas/90 backdrop-blur-[3px]" />
+        </div>
+      )}
       <header className="sticky top-0 z-40 border-b border-line/60 bg-canvas/85 backdrop-blur-xl">
         <div className="mx-auto flex h-16 max-w-5xl items-center gap-2.5 px-4">
           <button
@@ -99,6 +112,17 @@ export default function CustomerMenu({
             <ArrowRight className="h-4 w-4" aria-hidden="true" />
             <span className="hidden text-[10px] font-bold sm:inline">گفتگو</span>
           </button>
+          {menu.logo_url && (
+            <span className="relative h-10 w-10 shrink-0 overflow-hidden rounded-2xl border border-line bg-surface shadow-sm">
+              <Image
+                src={menu.logo_url}
+                alt={`لوگوی ${menu.restaurant_name}`}
+                fill
+                unoptimized
+                className="object-cover"
+              />
+            </span>
+          )}
           <div className="min-w-0 flex-1">
             <h1 className="truncate text-sm font-black">
               {menu.restaurant_name}
@@ -123,7 +147,7 @@ export default function CustomerMenu({
         className="border-b border-line/60 shadow-[0_8px_24px_-20px_rgba(0,0,0,0.45)]"
       />
 
-      <main className="mx-auto max-w-5xl px-4 pt-5 pb-10">
+      <main className="relative z-10 mx-auto max-w-5xl px-4 pt-5 pb-10">
         <div className="mb-4 flex items-end justify-between gap-3">
           <div>
             <h2 className="text-base font-black">منوی کافه</h2>

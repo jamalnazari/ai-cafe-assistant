@@ -45,6 +45,8 @@ class Settings(BaseSettings):
 
     # Menu item images
     UPLOAD_DIR: Path = API_DIR / "uploads" / "menu_items"
+    # تصاویر هویت کافه (لوگو و پس‌زمینهٔ صفحهٔ مشتری)
+    BRANDING_UPLOAD_DIR: Path = API_DIR / "uploads" / "branding"
     UPLOAD_MAX_BYTES: int = 5 * 1024 * 1024
 
     # پشتیبان‌گیری از دیتابیس

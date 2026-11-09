@@ -31,8 +31,25 @@ class MenuItem(BaseModel):
 class RestaurantMenu(BaseModel):
     restaurant_slug: str
     restaurant_name: str
+    # هویت بصری کافه؛ در پنل مالک قابل تغییر است.
+    logo_url: str | None = None
+    background_url: str | None = None
     categories: list[str] = Field(default_factory=list)
     items: list[MenuItem]
+
+
+class RestaurantUpdate(BaseModel):
+    """تغییر اطلاعات پایهٔ کافه توسط صاحب کافه."""
+
+    name: str = Field(min_length=1, max_length=100)
+
+    @field_validator("name")
+    @classmethod
+    def validate_name(cls, value: str) -> str:
+        name = value.strip()
+        if not name:
+            raise ValueError("نام کافه نمی‌تواند خالی باشد.")
+        return name
 
 
 class MenuCategoryCreate(BaseModel):

@@ -130,6 +130,8 @@ export default function GuestMenuPage({ params }: PageProps) {
   return (
     <MenuChat
       restaurantName={menu.restaurant_name}
+      logoUrl={menu.logo_url ?? null}
+      backgroundUrl={menu.background_url ?? null}
       itemCount={menu.items.length}
       categoryCount={categoryCount}
       assistant={assistant}

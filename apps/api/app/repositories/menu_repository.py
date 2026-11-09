@@ -5,6 +5,7 @@ from sqlalchemy.orm import selectinload
 
 from app.models.restaurant import RestaurantModel
 from app.schemas.menu import MenuItem, Price, RestaurantMenu
+from app.services.branding_image_service import branding_image_service
 from app.services.menu_image_service import menu_image_service
 
 
@@ -88,6 +89,10 @@ class SqlAlchemyMenuRepository:
         return RestaurantMenu(
             restaurant_slug=restaurant.slug,
             restaurant_name=restaurant.name,
+            logo_url=branding_image_service.get_image_url(restaurant.logo_filename),
+            background_url=branding_image_service.get_image_url(
+                restaurant.background_filename
+            ),
             categories=category_names,
             items=items,
         )

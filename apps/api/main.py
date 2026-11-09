@@ -41,12 +41,14 @@ from app.schemas.auth import LoginRequest, LoginResponse, OwnerResponse
 from app.schemas.chat import TextQuestionRequest
 from app.schemas.menu import (
     MenuCategoryCreate,
+    RestaurantUpdate,
     MenuItem as MenuItemSchema,
     MenuItemCreate,
     MenuItemUpdate,
     RestaurantMenu,
 )
 from app.services.assistant_service import AssistantService
+from app.services.branding_image_service import branding_image_service
 from app.services.menu_image_service import menu_image_service
 from app.services.menu_recommendation import find_mentioned_items
 
@@ -98,10 +100,16 @@ if settings.allowed_hosts:
     app.add_middleware(TrustedHostMiddleware, allowed_hosts=settings.allowed_hosts)
 
 settings.UPLOAD_DIR.mkdir(parents=True, exist_ok=True)
+settings.BRANDING_UPLOAD_DIR.mkdir(parents=True, exist_ok=True)
 app.mount(
     "/api/v1/uploads/menu-items",
     StaticFiles(directory=settings.UPLOAD_DIR),
     name="menu-item-images",
+)
+app.mount(
+    "/api/v1/uploads/branding",
+    StaticFiles(directory=settings.BRANDING_UPLOAD_DIR),
+    name="restaurant-branding",
 )
 
 assistant_service = AssistantService()
@@ -181,6 +189,118 @@ async def logout(
     await auth_service.revoke_session(db, token)
     clear_session_cookie(response)
     return {"message": "با موفقیت از حساب خارج شدید."}
+
+
+# --- هویت کافه (نام، لوگو، پس‌زمینه) ---
+async def get_restaurant_or_404(
+    db: AsyncSession, restaurant_slug: str
+) -> RestaurantModel:
+    restaurant = await db.scalar(
+        select(RestaurantModel).where(RestaurantModel.slug == restaurant_slug)
+    )
+    if restaurant is None:
+        raise HTTPException(status_code=404, detail="کافه یافت نشد.")
+    return restaurant
+
+
+async def replace_branding_image(
+    db: AsyncSession,
+    restaurant: RestaurantModel,
+    field: str,
+    file: UploadFile,
+) -> str:
+    """تصویر جدید را ذخیره، به رکورد وصل و تصویر قبلی را پاک می‌کند."""
+    filename = await branding_image_service.save_image(file)
+    previous_filename = getattr(restaurant, field)
+    setattr(restaurant, field, filename)
+    try:
+        await db.commit()
+    except Exception:
+        branding_image_service.delete_image(filename)
+        raise
+    branding_image_service.delete_image(previous_filename)
+    return filename
+
+
+async def clear_branding_image(
+    db: AsyncSession, restaurant: RestaurantModel, field: str
+) -> None:
+    previous_filename = getattr(restaurant, field)
+    if not previous_filename:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="تصویری برای حذف ثبت نشده است.",
+        )
+    setattr(restaurant, field, None)
+    await db.commit()
+    branding_image_service.delete_image(previous_filename)
+
+
+@app.patch("/api/v1/restaurants/{restaurant_slug}")
+async def update_restaurant(
+    restaurant_slug: str,
+    body: RestaurantUpdate,
+    db: AsyncSession = Depends(get_db),
+    _current_owner: UserModel = Depends(get_current_owner),
+) -> dict[str, str]:
+    restaurant = await get_restaurant_or_404(db, restaurant_slug)
+    restaurant.name = body.name
+    await db.commit()
+    return {"message": "نام کافه به‌روزرسانی شد.", "name": restaurant.name}
+
+
+@app.post("/api/v1/restaurants/{restaurant_slug}/logo")
+async def upload_restaurant_logo(
+    restaurant_slug: str,
+    file: UploadFile = File(...),
+    db: AsyncSession = Depends(get_db),
+    _current_owner: UserModel = Depends(get_current_owner),
+) -> dict[str, str | None]:
+    restaurant = await get_restaurant_or_404(db, restaurant_slug)
+    filename = await replace_branding_image(db, restaurant, "logo_filename", file)
+    return {
+        "message": "لوگوی کافه به‌روزرسانی شد.",
+        "logo_url": branding_image_service.get_image_url(filename),
+    }
+
+
+@app.delete("/api/v1/restaurants/{restaurant_slug}/logo")
+async def delete_restaurant_logo(
+    restaurant_slug: str,
+    db: AsyncSession = Depends(get_db),
+    _current_owner: UserModel = Depends(get_current_owner),
+) -> dict[str, str | None]:
+    restaurant = await get_restaurant_or_404(db, restaurant_slug)
+    await clear_branding_image(db, restaurant, "logo_filename")
+    return {"message": "لوگوی کافه حذف شد.", "logo_url": None}
+
+
+@app.post("/api/v1/restaurants/{restaurant_slug}/background")
+async def upload_restaurant_background(
+    restaurant_slug: str,
+    file: UploadFile = File(...),
+    db: AsyncSession = Depends(get_db),
+    _current_owner: UserModel = Depends(get_current_owner),
+) -> dict[str, str | None]:
+    restaurant = await get_restaurant_or_404(db, restaurant_slug)
+    filename = await replace_branding_image(
+        db, restaurant, "background_filename", file
+    )
+    return {
+        "message": "تصویر پس‌زمینهٔ کافه به‌روزرسانی شد.",
+        "background_url": branding_image_service.get_image_url(filename),
+    }
+
+
+@app.delete("/api/v1/restaurants/{restaurant_slug}/background")
+async def delete_restaurant_background(
+    restaurant_slug: str,
+    db: AsyncSession = Depends(get_db),
+    _current_owner: UserModel = Depends(get_current_owner),
+) -> dict[str, str | None]:
+    restaurant = await get_restaurant_or_404(db, restaurant_slug)
+    await clear_branding_image(db, restaurant, "background_filename")
+    return {"message": "تصویر پس‌زمینهٔ کافه حذف شد.", "background_url": None}
 
 
 # --- دریافت منو ---

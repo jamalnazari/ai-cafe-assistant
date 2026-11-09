@@ -18,6 +18,10 @@ export interface MenuItem {
 export interface RestaurantMenu {
   restaurant_slug: string;
   restaurant_name: string;
+  /** لوگوی کافه که صاحب کافه از پنل بارگذاری می‌کند. */
+  logo_url?: string | null;
+  /** تصویر پس‌زمینهٔ صفحهٔ مشتری. */
+  background_url?: string | null;
   categories?: string[];
   items: MenuItem[];
 }

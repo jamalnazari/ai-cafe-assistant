@@ -6,6 +6,7 @@ import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { QRCodeSVG } from "qrcode.react";
 import {
+  Check,
   CircleAlert,
   Coffee,
   Copy,
@@ -19,6 +20,7 @@ import {
   Plus,
   Printer,
   QrCode,
+  Store,
   Tags,
   Trash2,
   TriangleAlert,
@@ -36,7 +38,7 @@ import {
   restaurantInitial,
 } from "@/lib/format";
 import { useCategoryScrollSpy } from "@/lib/use-category-scroll-spy";
-import type { MenuItem, RestaurantMenu } from "./dashboard-types";
+import type { BrandingKind, MenuItem, RestaurantMenu } from "./dashboard-types";
 
 const MAX_IMAGE_BYTES = 5 * 1024 * 1024;
 const ALLOWED_IMAGE_TYPES = ["image/jpeg", "image/png", "image/webp"];
@@ -137,6 +139,15 @@ export default function DashboardClient({
   );
   const [deletingCategory, setDeletingCategory] = useState(false);
 
+  // --- هویت کافه (نام، لوگو، پس‌زمینه) ---
+  const [brandName, setBrandName] = useState("");
+  const [savingBrandName, setSavingBrandName] = useState(false);
+  const [brandError, setBrandError] = useState<string | null>(null);
+  const [uploadingBranding, setUploadingBranding] = useState<BrandingKind | null>(
+    null,
+  );
+  const lastSyncedBrandName = useRef<string | null>(null);
+
   const items = useMemo(() => menu?.items ?? [], [menu]);
   const restaurantSlug = menu?.restaurant_slug ?? "demo";
 
@@ -207,6 +218,107 @@ export default function DashboardClient({
     },
     [router],
   );
+
+  useEffect(() => {
+    const name = menu?.restaurant_name;
+    if (!name || name === lastSyncedBrandName.current) return;
+    lastSyncedBrandName.current = name;
+    setBrandName(name);
+  }, [menu?.restaurant_name]);
+
+  const saveBrandName = async (event: React.FormEvent) => {
+    event.preventDefault();
+    const name = brandName.trim();
+    if (!name || savingBrandName) return;
+
+    setSavingBrandName(true);
+    setBrandError(null);
+    try {
+      const response = await fetch(`/api/v1/restaurants/${restaurantSlug}`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ name }),
+        credentials: "same-origin",
+      });
+      if (handleExpiredSession(response)) return;
+      if (!response.ok) {
+        throw new Error(
+          await getResponseError(response, "ذخیرهٔ نام کافه ناموفق بود."),
+        );
+      }
+      await fetchMenu();
+      push("نام کافه به‌روزرسانی شد.");
+    } catch (error) {
+      setBrandError(
+        error instanceof Error ? error.message : "ذخیرهٔ نام کافه ناموفق بود.",
+      );
+    } finally {
+      setSavingBrandName(false);
+    }
+  };
+
+  const uploadBrandingImage = async (kind: BrandingKind, file: File) => {
+    const validationError = validateImageFile(file);
+    if (validationError) {
+      setBrandError(validationError);
+      return;
+    }
+
+    setUploadingBranding(kind);
+    setBrandError(null);
+    try {
+      const formData = new FormData();
+      formData.append("file", file);
+      const response = await fetch(
+        `/api/v1/restaurants/${restaurantSlug}/${kind}`,
+        { method: "POST", body: formData, credentials: "same-origin" },
+      );
+      if (handleExpiredSession(response)) return;
+      if (!response.ok) {
+        throw new Error(
+          await getResponseError(response, "بارگذاری تصویر ناموفق بود."),
+        );
+      }
+      await fetchMenu();
+      push(
+        kind === "logo"
+          ? "لوگوی کافه به‌روزرسانی شد."
+          : "تصویر پس‌زمینه به‌روزرسانی شد.",
+      );
+    } catch (error) {
+      setBrandError(
+        error instanceof Error ? error.message : "بارگذاری تصویر ناموفق بود.",
+      );
+    } finally {
+      setUploadingBranding(null);
+    }
+  };
+
+  const removeBrandingImage = async (kind: BrandingKind) => {
+    if (uploadingBranding) return;
+    setUploadingBranding(kind);
+    setBrandError(null);
+    try {
+      const response = await fetch(
+        `/api/v1/restaurants/${restaurantSlug}/${kind}`,
+        { method: "DELETE", credentials: "same-origin" },
+      );
+      if (handleExpiredSession(response)) return;
+      if (!response.ok) {
+        throw new Error(
+          await getResponseError(response, "حذف تصویر ناموفق بود."),
+        );
+      }
+      await fetchMenu();
+      push(kind === "logo" ? "لوگوی کافه حذف شد." : "تصویر پس‌زمینه حذف شد.");
+    } catch (error) {
+      setBrandError(
+        error instanceof Error ? error.message : "حذف تصویر ناموفق بود.",
+      );
+    } finally {
+      setUploadingBranding(null);
+    }
+  };
 
   const uploadImageRequest = useCallback(
     async (itemKey: string, file: File) => {
@@ -644,8 +756,18 @@ export default function DashboardClient({
       <header className="sticky top-0 z-40 border-b border-line/60 bg-canvas/80 backdrop-blur-xl print:hidden">
         <div className="mx-auto flex h-16 max-w-6xl items-center justify-between gap-3 px-4">
           <div className="flex min-w-0 items-center gap-2.5">
-            <span className="grid h-10 w-10 shrink-0 place-items-center rounded-2xl bg-primary text-on-primary shadow-md shadow-primary/25">
-              <Coffee className="h-5 w-5" aria-hidden="true" />
+            <span className="relative grid h-10 w-10 shrink-0 place-items-center overflow-hidden rounded-2xl bg-primary text-on-primary shadow-md shadow-primary/25">
+              {menu?.logo_url ? (
+                <NextImage
+                  src={menu.logo_url}
+                  alt="لوگوی کافه"
+                  fill
+                  unoptimized
+                  className="object-cover"
+                />
+              ) : (
+                <Coffee className="h-5 w-5" aria-hidden="true" />
+              )}
             </span>
             <div className="min-w-0">
               <h1 className="truncate text-sm font-black">
@@ -994,6 +1116,215 @@ export default function DashboardClient({
           </section>
 
           <aside className="order-1 space-y-4 lg:order-2 lg:sticky lg:top-20">
+            <section className="rounded-3xl border border-line bg-surface shadow-card">
+              <div className="flex items-center gap-2.5 border-b border-line/60 px-4 py-3.5">
+                <span className="grid h-8 w-8 place-items-center rounded-xl bg-primary-soft text-primary">
+                  <Store className="h-4 w-4" aria-hidden="true" />
+                </span>
+                <div className="min-w-0 flex-1">
+                  <h3 className="text-sm font-black">هویت کافه</h3>
+                  <p className="text-[10px] text-ink-faint">
+                    نام، لوگو و پس‌زمینهٔ صفحهٔ مشتری
+                  </p>
+                </div>
+              </div>
+
+              <div className="space-y-4 p-4">
+                <form onSubmit={saveBrandName} className="space-y-1.5">
+                  <label
+                    htmlFor="brand-name"
+                    className="text-[10px] font-bold text-ink-soft"
+                  >
+                    نام کافه یا رستوران
+                  </label>
+                  <div className="flex gap-1.5">
+                    <input
+                      id="brand-name"
+                      type="text"
+                      value={brandName}
+                      onChange={(event) => setBrandName(event.target.value)}
+                      maxLength={100}
+                      disabled={savingBrandName}
+                      placeholder="کافه رستوران ونوشه"
+                      className="min-w-0 flex-1 rounded-xl border border-line bg-surface-muted px-3 py-2.5 text-[11px] text-ink outline-none transition-all placeholder:text-ink-faint focus:border-primary focus:ring-4 focus:ring-primary/15 disabled:opacity-60"
+                    />
+                    <button
+                      type="submit"
+                      disabled={
+                        savingBrandName ||
+                        !brandName.trim() ||
+                        brandName.trim() === menu?.restaurant_name
+                      }
+                      title="ذخیرهٔ نام کافه"
+                      className="inline-flex shrink-0 items-center gap-1 rounded-xl bg-primary px-3 py-2.5 text-[10px] font-bold text-on-primary transition-colors hover:bg-primary-strong disabled:cursor-not-allowed disabled:opacity-50"
+                    >
+                      {savingBrandName ? (
+                        <LoaderCircle
+                          className="h-3.5 w-3.5 animate-spin"
+                          aria-hidden="true"
+                        />
+                      ) : (
+                        <Check className="h-3.5 w-3.5" aria-hidden="true" />
+                      )}
+                      ذخیره
+                    </button>
+                  </div>
+                  <p className="text-[10px] leading-5 text-ink-faint">
+                    این نام در سرصفحهٔ منوی مشتری و روی برگهٔ QR دیده می‌شود.
+                  </p>
+                </form>
+
+                <div className="space-y-2">
+                  <p className="text-[10px] font-bold text-ink-soft">لوگوی کافه</p>
+                  <div className="flex items-center gap-2.5">
+                    <span className="relative grid h-14 w-14 shrink-0 place-items-center overflow-hidden rounded-2xl border border-line bg-surface-muted">
+                      {menu?.logo_url ? (
+                        <NextImage
+                          src={menu.logo_url}
+                          alt="لوگوی کافه"
+                          fill
+                          unoptimized
+                          className="object-cover"
+                        />
+                      ) : (
+                        <ImageIcon
+                          className="h-5 w-5 text-ink-faint"
+                          aria-hidden="true"
+                        />
+                      )}
+                    </span>
+                    <div className="flex min-w-0 flex-1 flex-wrap gap-1.5">
+                      <label
+                        className={cn(
+                          "inline-flex cursor-pointer items-center gap-1 rounded-xl border border-line bg-surface-muted px-2.5 py-2 text-[10px] font-bold text-ink-soft transition-colors hover:border-primary/40 hover:text-primary",
+                          uploadingBranding === "logo" &&
+                            "pointer-events-none opacity-50",
+                        )}
+                      >
+                        {uploadingBranding === "logo" ? (
+                          <LoaderCircle
+                            className="h-3.5 w-3.5 animate-spin"
+                            aria-hidden="true"
+                          />
+                        ) : (
+                          <ImagePlus
+                            className="h-3.5 w-3.5"
+                            aria-hidden="true"
+                          />
+                        )}
+                        {menu?.logo_url ? "تغییر لوگو" : "بارگذاری لوگو"}
+                        <input
+                          type="file"
+                          accept=".jpg,.jpeg,.png,.webp,image/jpeg,image/png,image/webp"
+                          className="sr-only"
+                          disabled={uploadingBranding !== null}
+                          onChange={(event) => {
+                            const file = event.target.files?.[0];
+                            event.target.value = "";
+                            if (file) void uploadBrandingImage("logo", file);
+                          }}
+                        />
+                      </label>
+                      {menu?.logo_url && (
+                        <button
+                          type="button"
+                          onClick={() => void removeBrandingImage("logo")}
+                          disabled={uploadingBranding !== null}
+                          className="inline-flex items-center gap-1 rounded-xl px-2.5 py-2 text-[10px] font-bold text-ink-faint transition-colors hover:bg-danger-soft hover:text-danger disabled:opacity-50"
+                        >
+                          <Trash2
+                            className="h-3.5 w-3.5"
+                            aria-hidden="true"
+                          />
+                          حذف
+                        </button>
+                      )}
+                    </div>
+                  </div>
+                  <p className="text-[10px] leading-5 text-ink-faint">
+                    مربع‌ترین تصویر بهترین نتیجه را می‌دهد (حداکثر ۵ مگابایت).
+                  </p>
+                </div>
+
+                <div className="space-y-2">
+                  <p className="text-[10px] font-bold text-ink-soft">
+                    تصویر پس‌زمینهٔ صفحهٔ مشتری
+                  </p>
+                  <div className="relative grid h-24 w-full place-items-center overflow-hidden rounded-2xl border border-line bg-surface-muted">
+                    {menu?.background_url ? (
+                      <NextImage
+                        src={menu.background_url}
+                        alt="پس‌زمینهٔ صفحهٔ مشتری"
+                        fill
+                        unoptimized
+                        className="object-cover"
+                      />
+                    ) : (
+                      <span className="text-[10px] font-bold text-ink-faint">
+                        بدون تصویر پس‌زمینه
+                      </span>
+                    )}
+                  </div>
+                  <div className="flex flex-wrap gap-1.5">
+                    <label
+                      className={cn(
+                        "inline-flex cursor-pointer items-center gap-1 rounded-xl border border-line bg-surface-muted px-2.5 py-2 text-[10px] font-bold text-ink-soft transition-colors hover:border-primary/40 hover:text-primary",
+                        uploadingBranding === "background" &&
+                          "pointer-events-none opacity-50",
+                      )}
+                    >
+                      {uploadingBranding === "background" ? (
+                        <LoaderCircle
+                          className="h-3.5 w-3.5 animate-spin"
+                          aria-hidden="true"
+                        />
+                      ) : (
+                        <ImagePlus className="h-3.5 w-3.5" aria-hidden="true" />
+                      )}
+                      {menu?.background_url
+                        ? "تغییر پس‌زمینه"
+                        : "بارگذاری پس‌زمینه"}
+                      <input
+                        type="file"
+                        accept=".jpg,.jpeg,.png,.webp,image/jpeg,image/png,image/webp"
+                        className="sr-only"
+                        disabled={uploadingBranding !== null}
+                        onChange={(event) => {
+                          const file = event.target.files?.[0];
+                          event.target.value = "";
+                          if (file)
+                            void uploadBrandingImage("background", file);
+                        }}
+                      />
+                    </label>
+                    {menu?.background_url && (
+                      <button
+                        type="button"
+                        onClick={() => void removeBrandingImage("background")}
+                        disabled={uploadingBranding !== null}
+                        className="inline-flex items-center gap-1 rounded-xl px-2.5 py-2 text-[10px] font-bold text-ink-faint transition-colors hover:bg-danger-soft hover:text-danger disabled:opacity-50"
+                      >
+                        <Trash2 className="h-3.5 w-3.5" aria-hidden="true" />
+                        حذف
+                      </button>
+                    )}
+                  </div>
+                  <p className="text-[10px] leading-5 text-ink-faint">
+                    عکس افقی از فضای کافه، کم‌کنتراست و تیره انتخاب کنید تا متن
+                    منو خوانا بماند.
+                  </p>
+                </div>
+
+                {brandError && (
+                  <p
+                    role="alert"
+                    className="rounded-xl border border-danger/25 bg-danger-soft px-2.5 py-2 text-[10px] font-bold text-danger"
+                  >
+                    {brandError}
+                  </p>
+                )}
+              </div>
+            </section>
             <section className="rounded-3xl border border-line bg-surface shadow-card">
               <div className="flex items-center gap-2.5 border-b border-line/60 px-4 py-3.5">
                 <span className="grid h-8 w-8 place-items-center rounded-xl bg-primary-soft text-primary">
