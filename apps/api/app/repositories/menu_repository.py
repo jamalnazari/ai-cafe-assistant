@@ -51,6 +51,21 @@ class SqlAlchemyMenuRepository:
             if item.category not in category_names:
                 category_names.append(item.category)
 
+        # آیتم‌ها به ترتیب دسته‌بندی و سپس ترتیب تعریف‌شده در هر دسته برگردانده
+        # می‌شوند تا خروجی API و پرامپت LLM هر دو ساخت‌یافته و قابل پیش‌بینی باشند.
+        category_order = {
+            category_name: index
+            for index, category_name in enumerate(category_names)
+        }
+        ordered_items = sorted(
+            restaurant.items,
+            key=lambda item: (
+                category_order.get(item.category, len(category_names)),
+                item.sort_order,
+                item.id,
+            ),
+        )
+
         # تبدیل داده‌های ORM دیتابیس به اسکیمای استاندارد Pydantic
         items = [
             MenuItem(
@@ -61,12 +76,13 @@ class SqlAlchemyMenuRepository:
                 image_url=menu_image_service.get_image_url(item.image_filename),
                 ingredients=item.ingredients,
                 allergens=item.allergens,
+                aliases=item.aliases,
                 is_spicy=item.is_spicy,
                 serving_temperature=item.serving_temperature,  # type: ignore
                 price=Price(amount=item.price_amount, currency=item.price_currency),
                 is_available=item.is_available,
             )
-            for item in restaurant.items
+            for item in ordered_items
         ]
 
         return RestaurantMenu(

@@ -2,6 +2,7 @@ import asyncio
 import base64
 from dataclasses import dataclass
 from datetime import datetime, timedelta, timezone
+from urllib.parse import quote
 
 import pytest
 from fastapi.testclient import TestClient
@@ -24,6 +25,8 @@ from app.models import (
     UserModel,
 )
 from app.services.menu_image_service import menu_image_service
+from app.services.menu_recommendation import find_mentioned_items
+from app.schemas.menu import MenuItem, Price, RestaurantMenu
 from main import app, assistant_service
 
 
@@ -398,6 +401,140 @@ def test_item_cannot_use_an_unknown_category(auth_context: AuthTestContext):
     assert "دسته‌بندی معتبر نیست" in update_response.json()["detail"]
 
 
+def category_url(name: str) -> str:
+    return f"/api/v1/restaurants/demo/categories/{quote(name)}"
+
+
+def test_category_deletion_requires_authentication(
+    auth_context: AuthTestContext,
+):
+    response = auth_context.client.delete(category_url("نوشیدنی گرم"))
+
+    assert response.status_code == 401
+
+
+def test_owner_can_delete_an_empty_category(auth_context: AuthTestContext):
+    client = auth_context.client
+    assert login(client).status_code == 200
+    assert (
+        client.post(
+            "/api/v1/restaurants/demo/categories", json={"name": "دسر"}
+        ).status_code
+        == 200
+    )
+
+    response = client.delete(category_url("دسر"))
+
+    assert response.status_code == 200
+    assert response.json()["message"] == "دسته‌بندی حذف شد."
+    menu = client.get("/api/v1/restaurants/demo/menu").json()
+    assert "دسر" not in menu["categories"]
+
+
+def test_deleting_a_category_with_items_needs_a_strategy(
+    auth_context: AuthTestContext,
+):
+    client = auth_context.client
+    assert login(client).status_code == 200
+
+    response = client.delete(category_url("نوشیدنی گرم"))
+
+    assert response.status_code == 409
+    assert "۱ آیتم" in response.json()["detail"] or "1 آیتم" in response.json()["detail"]
+    menu = client.get("/api/v1/restaurants/demo/menu").json()
+    assert "نوشیدنی گرم" in menu["categories"]
+    assert [item["id"] for item in menu["items"]] == ["latte"]
+
+
+def test_deleting_a_category_can_move_items_to_another_category(
+    auth_context: AuthTestContext,
+):
+    client = auth_context.client
+    assert login(client).status_code == 200
+    assert (
+        client.post(
+            "/api/v1/restaurants/demo/categories", json={"name": "نوشیدنی ویژه"}
+        ).status_code
+        == 200
+    )
+
+    response = client.delete(
+        category_url("نوشیدنی گرم"),
+        params={"strategy": "move", "move_to": "نوشیدنی ویژه"},
+    )
+
+    assert response.status_code == 200
+    assert response.json()["moved_to"] == "نوشیدنی ویژه"
+    assert response.json()["deleted_item_keys"] == []
+    menu = client.get("/api/v1/restaurants/demo/menu").json()
+    assert "نوشیدنی گرم" not in menu["categories"]
+    assert "نوشیدنی ویژه" in menu["categories"]
+    latte = next(item for item in menu["items"] if item["id"] == "latte")
+    assert latte["category"] == "نوشیدنی ویژه"
+
+
+def test_deleting_a_category_can_delete_its_items_and_images(
+    auth_context: AuthTestContext,
+):
+    client = auth_context.client
+    assert login(client).status_code == 200
+    image_response = client.post(
+        "/api/v1/restaurants/demo/items/latte/image",
+        files={"file": ("latte.png", PNG_IMAGE, "image/png")},
+    )
+    image_url = image_response.json()["image_url"]
+    image_path = menu_image_service.upload_dir / image_url.rsplit("/", 1)[-1]
+    assert image_path.is_file()
+
+    response = client.delete(
+        category_url("نوشیدنی گرم"), params={"strategy": "delete_items"}
+    )
+
+    assert response.status_code == 200
+    assert response.json()["deleted_item_keys"] == ["latte"]
+    assert not image_path.exists()
+    menu = client.get("/api/v1/restaurants/demo/menu").json()
+    assert "نوشیدنی گرم" not in menu["categories"]
+    assert menu["items"] == []
+
+
+def test_move_target_must_be_a_different_existing_category(
+    auth_context: AuthTestContext,
+):
+    client = auth_context.client
+    assert login(client).status_code == 200
+
+    missing_target = client.delete(
+        category_url("نوشیدنی گرم"), params={"strategy": "move"}
+    )
+    unknown_target = client.delete(
+        category_url("نوشیدنی گرم"),
+        params={"strategy": "move", "move_to": "دسته ناموجود"},
+    )
+    same_target = client.delete(
+        category_url("نوشیدنی گرم"),
+        params={"strategy": "move", "move_to": "نوشیدنی گرم"},
+    )
+
+    assert missing_target.status_code == 400
+    assert unknown_target.status_code == 400
+    assert same_target.status_code == 400
+    menu = client.get("/api/v1/restaurants/demo/menu").json()
+    assert "نوشیدنی گرم" in menu["categories"]
+    assert [item["id"] for item in menu["items"]] == ["latte"]
+
+
+def test_deleting_an_unknown_category_returns_not_found(
+    auth_context: AuthTestContext,
+):
+    client = auth_context.client
+    assert login(client).status_code == 200
+
+    response = client.delete(category_url("دسته ناموجود"))
+
+    assert response.status_code == 404
+
+
 def test_text_question_passes_previous_turns_to_the_assistant(
     auth_context: AuthTestContext, monkeypatch
 ):
@@ -436,3 +573,100 @@ def test_text_question_passes_previous_turns_to_the_assistant(
     assert provider.question == "قیمتش چقدر است؟"
     assert provider.history == [("لاته چه ترکیباتی دارد؟", "لاته اسپرسو و شیر دارد.")]
     assert "تاریخچه گفتگو" in provider.system_prompt
+    assert "price_toman" in provider.system_prompt
+    assert '"name": "لاته"' in provider.system_prompt
+
+
+class FixedAnswerProvider:
+    def __init__(self, answer: str) -> None:
+        self.answer = answer
+
+    async def generate_response(
+        self, system_prompt: str, user_question: str, history=None
+    ) -> str:
+        return self.answer
+
+
+def test_text_answer_returns_recommended_menu_items(
+    auth_context: AuthTestContext, monkeypatch
+):
+    monkeypatch.setattr(
+        assistant_service,
+        "llm_provider",
+        FixedAnswerProvider("پیشنهاد ما لاته است؛ ۱۴۵ هزار تومان."),
+    )
+
+    response = auth_context.client.post(
+        "/api/v1/restaurants/demo/ask-text",
+        json={"question": "چه چیزی پیشنهاد می‌دهید؟"},
+    )
+
+    assert response.status_code == 200
+    recommended = response.json()["recommended_items"]
+    assert [item["id"] for item in recommended] == ["latte"]
+    assert recommended[0]["name"] == "لاته"
+
+
+def test_text_answer_without_item_names_has_no_recommendations(
+    auth_context: AuthTestContext, monkeypatch
+):
+    monkeypatch.setattr(
+        assistant_service,
+        "llm_provider",
+        FixedAnswerProvider("امروز هوا آفتابی است."),
+    )
+
+    response = auth_context.client.post(
+        "/api/v1/restaurants/demo/ask-text",
+        json={"question": "هوا چطور است؟"},
+    )
+
+    assert response.status_code == 200
+    assert response.json()["recommended_items"] == []
+
+
+def test_recommendation_matcher_handles_aliases_and_persian_variants():
+    menu = RestaurantMenu(
+        restaurant_slug="demo",
+        restaurant_name="کافهٔ آزمایشی",
+        items=[
+            MenuItem(
+                id="cola",
+                name="نوشابه کوکا",
+                category="نوشیدنی سرد",
+                description="",
+                aliases=["کوکا", "کوکاکولا"],
+                price=Price(amount=600_000, currency="IRR"),
+            ),
+            MenuItem(
+                id="latte",
+                name="لاته",
+                category="نوشیدنی گرم",
+                description="",
+                price=Price(amount=1_450_000, currency="IRR"),
+            ),
+        ],
+    )
+
+    # «ك» عربی و «کوکا»ی جایگزین باید هر دو تشخیص داده شوند.
+    assert [item.id for item in find_mentioned_items(menu, "بله، نوشابه كوكا موجود است.")] == [
+        "cola"
+    ]
+    assert [item.id for item in find_mentioned_items(menu, "کوکاکولا و لاته داریم.")] == [
+        "cola",
+        "latte",
+    ]
+    assert find_mentioned_items(menu, "شیک شکلات با بستنی") == []
+    assert len(find_mentioned_items(menu, "کوکا و لاته", limit=1)) == 1
+
+
+def test_duplicate_item_key_is_rejected(auth_context: AuthTestContext):
+    client = auth_context.client
+    assert login(client).status_code == 200
+    payload = new_item_payload()
+    payload["item_key"] = "latte"
+
+    response = client.post("/api/v1/restaurants/demo/items", json=payload)
+
+    assert response.status_code == 409
+    assert "شناسه" in response.json()["detail"]

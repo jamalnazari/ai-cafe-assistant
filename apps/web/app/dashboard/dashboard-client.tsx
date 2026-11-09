@@ -1,20 +1,41 @@
 "use client";
 
-import React, { useCallback, useState } from "react";
+import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import NextImage from "next/image";
+import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { QRCodeSVG } from "qrcode.react";
 import {
+  CircleAlert,
   Coffee,
-  FolderPlus,
+  Copy,
+  ExternalLink,
+  Flame,
   Image as ImageIcon,
+  ImagePlus,
+  LoaderCircle,
   LogOut,
   Pencil,
   Plus,
+  Printer,
   QrCode,
   Tags,
   Trash2,
+  TriangleAlert,
+  UtensilsCrossed,
 } from "lucide-react";
+
+import MenuCategoryNav from "@/components/menu-category-nav";
+import ThemeSwitcher from "@/components/theme-switcher";
+import Modal from "@/components/ui/modal";
+import { ToastViewport, useToasts } from "@/components/ui/toast";
+import { cn } from "@/lib/cn";
+import {
+  formatItemPrice,
+  formatNumber,
+  restaurantInitial,
+} from "@/lib/format";
+import { useCategoryScrollSpy } from "@/lib/use-category-scroll-spy";
 import type { MenuItem, RestaurantMenu } from "./dashboard-types";
 
 const MAX_IMAGE_BYTES = 5 * 1024 * 1024;
@@ -25,6 +46,8 @@ type DashboardClientProps = {
   qrUrl: string;
   initialMenu: RestaurantMenu | null;
 };
+
+type CategoryDeleteMode = "move" | "delete_items";
 
 async function getResponseError(response: Response, fallback: string) {
   const data = (await response.json().catch(() => null)) as {
@@ -44,47 +67,120 @@ function validateImageFile(file: File) {
   return null;
 }
 
+function StatCard({
+  icon: Icon,
+  label,
+  value,
+}: {
+  icon: React.ComponentType<{ className?: string }>;
+  label: string;
+  value: number;
+}) {
+  return (
+    <div className="rounded-2xl border border-line bg-surface p-3.5 shadow-card">
+      <span className="grid h-8 w-8 place-items-center rounded-xl bg-primary-soft text-primary">
+        <Icon className="h-4 w-4" />
+      </span>
+      <p className="mt-2.5 text-lg font-black tabular-nums">{formatNumber(value)}</p>
+      <p className="text-[10px] font-bold text-ink-faint">{label}</p>
+    </div>
+  );
+}
+
 export default function DashboardClient({
   ownerEmail,
   qrUrl,
   initialMenu,
 }: DashboardClientProps) {
   const router = useRouter();
+  const { toasts, push, dismiss } = useToasts();
+
   const [menu, setMenu] = useState<RestaurantMenu | null>(initialMenu);
   const [actionError, setActionError] = useState<string | null>(
     initialMenu ? null : "دریافت منو ناموفق بود؛ لطفاً دوباره تلاش کنید.",
   );
-  const [showAddModal, setShowAddModal] = useState(false);
-  const [editingItemKey, setEditingItemKey] = useState<string | null>(null);
-  const [formError, setFormError] = useState<string | null>(null);
-  const [saving, setSaving] = useState(false);
-  const [deletingItemKey, setDeletingItemKey] = useState<string | null>(null);
-  const [uploadingItemKey, setUploadingItemKey] = useState<string | null>(null);
   const [loggingOut, setLoggingOut] = useState(false);
 
+  // --- فرم آیتم ---
+  const [showItemModal, setShowItemModal] = useState(false);
+  const [editingItemKey, setEditingItemKey] = useState<string | null>(null);
   const [name, setName] = useState("");
-  const [category, setCategory] = useState("نوشیدنی گرم");
+  const [category, setCategory] = useState("");
   const [description, setDescription] = useState("");
   const [priceToman, setPriceToman] = useState("");
   const [isSpicy, setIsSpicy] = useState(false);
   const [imageFile, setImageFile] = useState<File | null>(null);
+  const [imagePreviewUrl, setImagePreviewUrl] = useState<string | null>(null);
+  const previewUrlRef = useRef<string | null>(null);
+  const [formError, setFormError] = useState<string | null>(null);
+  const [saving, setSaving] = useState(false);
+  const [uploadingItemKey, setUploadingItemKey] = useState<string | null>(null);
+
+  // --- حذف آیتم ---
+  const [itemPendingDelete, setItemPendingDelete] = useState<MenuItem | null>(
+    null,
+  );
+  const [deletingItem, setDeletingItem] = useState(false);
+
+  // --- دسته‌بندی‌ها ---
   const [newCategoryName, setNewCategoryName] = useState("");
   const [categorySaving, setCategorySaving] = useState(false);
   const [categoryError, setCategoryError] = useState<string | null>(null);
-  const [categorySuccess, setCategorySuccess] = useState<string | null>(null);
+  const [categoryPendingDelete, setCategoryPendingDelete] = useState<
+    string | null
+  >(null);
+  const [categoryDeleteMode, setCategoryDeleteMode] =
+    useState<CategoryDeleteMode>("move");
+  const [categoryMoveTarget, setCategoryMoveTarget] = useState("");
+  const [categoryDeleteError, setCategoryDeleteError] = useState<string | null>(
+    null,
+  );
+  const [deletingCategory, setDeletingCategory] = useState(false);
 
-  const categoryNames = menu
-    ? Array.from(
-        new Set([
-          ...(menu.categories ?? []),
-          ...menu.items.map((item) => item.category),
-        ]),
-      )
-    : [];
+  const items = useMemo(() => menu?.items ?? [], [menu]);
+  const restaurantSlug = menu?.restaurant_slug ?? "demo";
+
+  const categoryNames = useMemo(() => {
+    if (!menu) return [];
+    return Array.from(
+      new Set([
+        ...(menu.categories ?? []),
+        ...menu.items.map((item) => item.category),
+      ]),
+    );
+  }, [menu]);
+
+  const categoryCounts = useMemo(() => {
+    const counts = new Map<string, number>();
+    for (const categoryName of categoryNames) {
+      counts.set(
+        categoryName,
+        items.filter((item) => item.category === categoryName).length,
+      );
+    }
+    return counts;
+  }, [categoryNames, items]);
+
+  const categoryList = useMemo(
+    () =>
+      categoryNames.map((categoryName) => ({
+        name: categoryName,
+        count: categoryCounts.get(categoryName) ?? 0,
+      })),
+    [categoryNames, categoryCounts],
+  );
+
+  const { activeCategory, navRef, menuRef, scrollToCategory } =
+    useCategoryScrollSpy(categoryNames);
+
+  const editingItem =
+    editingItemKey !== null
+      ? (items.find((item) => item.id === editingItemKey) ?? null)
+      : null;
 
   const fetchMenu = useCallback(async () => {
     try {
-      const response = await fetch("/api/v1/restaurants/demo/menu", {
+      const response = await fetch(`/api/v1/restaurants/demo/menu`, {
         cache: "no-store",
         credentials: "same-origin",
       });
@@ -117,7 +213,7 @@ export default function DashboardClient({
       const formData = new FormData();
       formData.append("file", file);
       const response = await fetch(
-        `/api/v1/restaurants/demo/items/${encodeURIComponent(itemKey)}/image`,
+        `/api/v1/restaurants/${restaurantSlug}/items/${encodeURIComponent(itemKey)}/image`,
         {
           method: "POST",
           body: formData,
@@ -133,32 +229,51 @@ export default function DashboardClient({
       }
       return true;
     },
-    [handleExpiredSession],
+    [handleExpiredSession, restaurantSlug],
   );
 
-  const resetForm = () => {
+  const selectImageFile = useCallback((file: File | null) => {
+    if (previewUrlRef.current) {
+      URL.revokeObjectURL(previewUrlRef.current);
+      previewUrlRef.current = null;
+    }
+    if (file) {
+      const objectUrl = URL.createObjectURL(file);
+      previewUrlRef.current = objectUrl;
+      setImagePreviewUrl(objectUrl);
+    } else {
+      setImagePreviewUrl(null);
+    }
+    setImageFile(file);
+  }, []);
+
+  useEffect(() => {
+    return () => {
+      if (previewUrlRef.current) {
+        URL.revokeObjectURL(previewUrlRef.current);
+        previewUrlRef.current = null;
+      }
+    };
+  }, []);
+
+  const resetForm = (prefillCategory?: string) => {
     setEditingItemKey(null);
     setName("");
     setCategory(
-      categoryNames.includes(category) ? category : (categoryNames[0] ?? ""),
+      prefillCategory && categoryNames.includes(prefillCategory)
+        ? prefillCategory
+        : (categoryNames[0] ?? ""),
     );
     setDescription("");
     setPriceToman("");
     setIsSpicy(false);
-    setImageFile(null);
+    selectImageFile(null);
     setFormError(null);
   };
 
-  const closeAddModal = () => {
-    setShowAddModal(false);
-    setEditingItemKey(null);
-    setImageFile(null);
-    setFormError(null);
-  };
-
-  const openCreateModal = () => {
-    resetForm();
-    setShowAddModal(true);
+  const openCreateModal = (prefillCategory?: string) => {
+    resetForm(prefillCategory);
+    setShowItemModal(true);
   };
 
   const openEditModal = (item: MenuItem) => {
@@ -168,28 +283,38 @@ export default function DashboardClient({
     setDescription(item.description);
     setPriceToman(item.price ? String(item.price.amount / 10) : "");
     setIsSpicy(item.is_spicy ?? false);
-    setImageFile(null);
+    selectImageFile(null);
     setFormError(null);
-    setShowAddModal(true);
+    setShowItemModal(true);
   };
 
-  const handleSelectNewImage = (event: React.ChangeEvent<HTMLInputElement>) => {
+  const closeItemModal = () => {
+    if (saving) return;
+    setShowItemModal(false);
+    setEditingItemKey(null);
+    selectImageFile(null);
+    setFormError(null);
+  };
+
+  const handleSelectNewImage = (
+    event: React.ChangeEvent<HTMLInputElement>,
+  ) => {
     const file = event.target.files?.[0] ?? null;
     if (!file) {
-      setImageFile(null);
+      selectImageFile(null);
       return;
     }
 
     const validationError = validateImageFile(file);
     if (validationError) {
-      setImageFile(null);
+      selectImageFile(null);
       setFormError(validationError);
       event.target.value = "";
       return;
     }
 
     setFormError(null);
-    setImageFile(file);
+    selectImageFile(file);
   };
 
   const handleAddCategory = async (event: React.FormEvent) => {
@@ -199,14 +324,16 @@ export default function DashboardClient({
 
     setCategorySaving(true);
     setCategoryError(null);
-    setCategorySuccess(null);
     try {
-      const response = await fetch("/api/v1/restaurants/demo/categories", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        credentials: "same-origin",
-        body: JSON.stringify({ name: categoryName }),
-      });
+      const response = await fetch(
+        `/api/v1/restaurants/${restaurantSlug}/categories`,
+        {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          credentials: "same-origin",
+          body: JSON.stringify({ name: categoryName }),
+        },
+      );
       if (handleExpiredSession(response)) return;
       if (!response.ok) {
         throw new Error(
@@ -230,11 +357,13 @@ export default function DashboardClient({
       );
       setNewCategoryName("");
       setCategory(savedCategory.name);
-      setCategorySuccess(`دسته‌بندی «${savedCategory.name}» اضافه شد.`);
+      push(`دسته‌بندی «${savedCategory.name}» اضافه شد.`);
       await fetchMenu();
     } catch (error) {
       setCategoryError(
-        error instanceof Error ? error.message : "افزودن دسته‌بندی ناموفق بود.",
+        error instanceof Error
+          ? error.message
+          : "افزودن دسته‌بندی ناموفق بود.",
       );
     } finally {
       setCategorySaving(false);
@@ -243,17 +372,26 @@ export default function DashboardClient({
 
   const handleSubmitItem = async (event: React.FormEvent) => {
     event.preventDefault();
-    if (!name || !priceToman || saving) return;
+    if (saving) return;
+
+    const trimmedName = name.trim();
+    if (!trimmedName) {
+      setFormError("نام آیتم را وارد کنید.");
+      return;
+    }
+    const priceValue = Number.parseInt(priceToman, 10);
+    if (!Number.isFinite(priceValue) || priceValue < 0) {
+      setFormError("قیمت معتبر وارد کنید.");
+      return;
+    }
     if (!category || !categoryNames.includes(category)) {
       setFormError("لطفاً یک دسته‌بندی معتبر انتخاب کنید.");
       return;
     }
 
     setSaving(true);
-    setActionError(null);
     setFormError(null);
     const isEditing = editingItemKey !== null;
-    const priceRial = Number.parseInt(priceToman, 10) * 10;
     const itemKey = editingItemKey ?? `item-${Date.now()}`;
     const selectedImage = imageFile;
     let itemSaved = false;
@@ -261,18 +399,18 @@ export default function DashboardClient({
     try {
       const response = await fetch(
         isEditing
-          ? `/api/v1/restaurants/demo/items/${encodeURIComponent(itemKey)}`
-          : "/api/v1/restaurants/demo/items",
+          ? `/api/v1/restaurants/${restaurantSlug}/items/${encodeURIComponent(itemKey)}`
+          : `/api/v1/restaurants/${restaurantSlug}/items`,
         {
           method: isEditing ? "PATCH" : "POST",
           headers: { "Content-Type": "application/json" },
           credentials: "same-origin",
           body: JSON.stringify({
             ...(isEditing ? {} : { item_key: itemKey }),
-            name,
+            name: trimmedName,
             category,
-            description,
-            price_amount: priceRial,
+            description: description.trim(),
+            price_amount: priceValue * 10,
             is_spicy: isSpicy,
           }),
         },
@@ -289,8 +427,9 @@ export default function DashboardClient({
       }
 
       itemSaved = true;
-      setShowAddModal(false);
-      resetForm();
+      setShowItemModal(false);
+      resetForm(category);
+      push(isEditing ? "تغییرات آیتم ذخیره شد." : "آیتم جدید به منو اضافه شد.");
 
       if (selectedImage) {
         try {
@@ -302,9 +441,12 @@ export default function DashboardClient({
             error instanceof Error
               ? error.message
               : "بارگذاری تصویر ناموفق بود.";
-          throw new Error(
-            `${isEditing ? "تغییرات" : "آیتم"} ذخیره شد، اما تصویر بارگذاری نشد. ${reason} می‌توانید از ردیف آیتم دوباره تلاش کنید.`,
+          push(
+            `${isEditing ? "تغییرات" : "آیتم"} ذخیره شد، اما تصویر بارگذاری نشد. ${reason}`,
+            "error",
           );
+          setShowItemModal(false);
+          return;
         }
       }
 
@@ -315,7 +457,7 @@ export default function DashboardClient({
         : "افزودن آیتم ناموفق بود.";
       const message = error instanceof Error ? error.message : fallback;
       if (itemSaved) {
-        setActionError(message);
+        push(message, "error");
       } else {
         setFormError(message);
       }
@@ -327,33 +469,34 @@ export default function DashboardClient({
   const handleImageUpload = async (itemKey: string, file: File) => {
     const validationError = validateImageFile(file);
     if (validationError) {
-      setActionError(validationError);
+      push(validationError, "error");
       return;
     }
 
     setUploadingItemKey(itemKey);
-    setActionError(null);
     try {
       const uploaded = await uploadImageRequest(itemKey, file);
       if (!uploaded) return;
       await fetchMenu();
+      push("تصویر آیتم به‌روزرسانی شد.");
     } catch (error) {
-      setActionError(
+      push(
         error instanceof Error ? error.message : "بارگذاری تصویر ناموفق بود.",
+        "error",
       );
     } finally {
       setUploadingItemKey(null);
     }
   };
 
-  const handleDeleteItem = async (itemKey: string) => {
-    if (!window.confirm("آیا از حذف این آیتم اطمینان دارید؟")) return;
+  const confirmDeleteItem = async () => {
+    if (!itemPendingDelete || deletingItem) return;
 
-    setDeletingItemKey(itemKey);
-    setActionError(null);
+    const itemToDelete = itemPendingDelete;
+    setDeletingItem(true);
     try {
       const response = await fetch(
-        `/api/v1/restaurants/demo/items/${encodeURIComponent(itemKey)}`,
+        `/api/v1/restaurants/${restaurantSlug}/items/${encodeURIComponent(itemToDelete.id)}`,
         { method: "DELETE", credentials: "same-origin" },
       );
 
@@ -363,20 +506,100 @@ export default function DashboardClient({
           await getResponseError(response, "حذف آیتم ناموفق بود."),
         );
       }
+
+      setItemPendingDelete(null);
+      push(`آیتم «${itemToDelete.name}» حذف شد.`);
       await fetchMenu();
     } catch (error) {
-      setActionError(
+      push(
         error instanceof Error ? error.message : "حذف آیتم ناموفق بود.",
+        "error",
       );
     } finally {
-      setDeletingItemKey(null);
+      setDeletingItem(false);
+    }
+  };
+
+  const openCategoryDelete = (categoryName: string) => {
+    const count = categoryCounts.get(categoryName) ?? 0;
+    const otherCategories = categoryNames.filter(
+      (name) => name !== categoryName,
+    );
+    setCategoryPendingDelete(categoryName);
+    setCategoryDeleteError(null);
+    setCategoryDeleteMode(
+      count > 0 && otherCategories.length > 0 ? "move" : "delete_items",
+    );
+    setCategoryMoveTarget(otherCategories[0] ?? "");
+  };
+
+  const closeCategoryDelete = () => {
+    if (deletingCategory) return;
+    setCategoryPendingDelete(null);
+    setCategoryDeleteError(null);
+  };
+
+  const confirmDeleteCategory = async () => {
+    if (!categoryPendingDelete || deletingCategory) return;
+
+    const categoryName = categoryPendingDelete;
+    const count = categoryCounts.get(categoryName) ?? 0;
+    const params = new URLSearchParams();
+
+    if (count > 0) {
+      if (categoryDeleteMode === "move") {
+        if (!categoryMoveTarget) {
+          setCategoryDeleteError("دسته‌بندی مقصد را برای انتقال انتخاب کنید.");
+          return;
+        }
+        params.set("strategy", "move");
+        params.set("move_to", categoryMoveTarget);
+      } else {
+        params.set("strategy", "delete_items");
+      }
+    }
+
+    const query = params.toString();
+    setDeletingCategory(true);
+    setCategoryDeleteError(null);
+    try {
+      const response = await fetch(
+        `/api/v1/restaurants/${restaurantSlug}/categories/${encodeURIComponent(categoryName)}${query ? `?${query}` : ""}`,
+        { method: "DELETE", credentials: "same-origin" },
+      );
+
+      if (handleExpiredSession(response)) return;
+      if (!response.ok) {
+        throw new Error(
+          await getResponseError(response, "حذف دسته‌بندی ناموفق بود."),
+        );
+      }
+
+      setCategoryPendingDelete(null);
+      if (count === 0) {
+        push(`دسته‌بندی «${categoryName}» حذف شد.`);
+      } else if (categoryDeleteMode === "move") {
+        push(
+          `دسته‌بندی «${categoryName}» حذف و ${formatNumber(count)} آیتم به «${categoryMoveTarget}» منتقل شد.`,
+        );
+      } else {
+        push(
+          `دسته‌بندی «${categoryName}» همراه با ${formatNumber(count)} آیتم حذف شد.`,
+        );
+      }
+      await fetchMenu();
+    } catch (error) {
+      setCategoryDeleteError(
+        error instanceof Error ? error.message : "حذف دسته‌بندی ناموفق بود.",
+      );
+    } finally {
+      setDeletingCategory(false);
     }
   };
 
   const handleLogout = async () => {
     if (loggingOut) return;
     setLoggingOut(true);
-    setActionError(null);
 
     try {
       const response = await fetch("/api/v1/auth/logout", {
@@ -389,413 +612,984 @@ export default function DashboardClient({
       router.replace("/login");
       router.refresh();
     } catch (error) {
-      setActionError(
+      push(
         error instanceof Error ? error.message : "خروج از حساب ناموفق بود.",
+        "error",
       );
       setLoggingOut(false);
     }
   };
 
+  const copyMenuLink = async () => {
+    const absoluteUrl = qrUrl.startsWith("http")
+      ? qrUrl
+      : `${window.location.origin}${qrUrl}`;
+    try {
+      await navigator.clipboard.writeText(absoluteUrl);
+      push("لینک منوی مشتری کپی شد.");
+    } catch {
+      push("کپی لینک ممکن نشد؛ لطفاً لینک را دستی کپی کنید.", "error");
+    }
+  };
+
+  const categoryPendingCount = categoryPendingDelete
+    ? (categoryCounts.get(categoryPendingDelete) ?? 0)
+    : 0;
+  const otherCategories = categoryNames.filter(
+    (categoryName) => categoryName !== categoryPendingDelete,
+  );
+
   return (
-    <div className="min-h-screen bg-amber-50/40 p-4 md:p-8">
-      <div className="max-w-4xl mx-auto space-y-6">
-        <header className="bg-white p-5 md:p-6 rounded-3xl shadow-sm border border-amber-100 flex flex-col gap-4 sm:flex-row sm:justify-between sm:items-center">
-          <div className="flex items-center gap-3 min-w-0">
-            <div className="w-10 h-10 shrink-0 bg-amber-800 text-white rounded-xl flex items-center justify-center">
-              <Coffee className="w-5 h-5" />
-            </div>
+    <div className="min-h-screen pb-16">
+      <header className="sticky top-0 z-40 border-b border-line/60 bg-canvas/80 backdrop-blur-xl print:hidden">
+        <div className="mx-auto flex h-16 max-w-6xl items-center justify-between gap-3 px-4">
+          <div className="flex min-w-0 items-center gap-2.5">
+            <span className="grid h-10 w-10 shrink-0 place-items-center rounded-2xl bg-primary text-on-primary shadow-md shadow-primary/25">
+              <Coffee className="h-5 w-5" aria-hidden="true" />
+            </span>
             <div className="min-w-0">
-              <h1 className="font-bold text-lg text-slate-800">
+              <h1 className="truncate text-sm font-black">
                 {menu?.restaurant_name ?? "پنل مدیریت کافه"}
               </h1>
-              <p className="text-xs text-slate-500 truncate" dir="ltr">
+              <p
+                className="truncate text-[10px] text-ink-faint"
+                dir="ltr"
+                title={ownerEmail}
+              >
                 {ownerEmail}
               </p>
             </div>
           </div>
-          <div className="flex items-center gap-2">
+
+          <div className="flex shrink-0 items-center gap-1.5 sm:gap-2">
+            <Link
+              href={`/r/${restaurantSlug}`}
+              target="_blank"
+              rel="noreferrer"
+              className="hidden items-center gap-1.5 rounded-full border border-line bg-surface px-3 py-2 text-[11px] font-bold text-ink-soft shadow-sm transition-colors hover:border-primary/40 hover:text-primary md:inline-flex"
+            >
+              <ExternalLink className="h-3.5 w-3.5" aria-hidden="true" />
+              پیش‌نمایش منو
+            </Link>
+            <ThemeSwitcher />
             <button
-              onClick={openCreateModal}
+              type="button"
+              onClick={handleLogout}
+              disabled={loggingOut}
+              aria-label="خروج از حساب"
+              title="خروج از حساب"
+              className="grid h-10 w-10 place-items-center rounded-full border border-line bg-surface text-ink-soft shadow-sm transition-colors hover:border-danger/40 hover:text-danger disabled:opacity-50"
+            >
+              {loggingOut ? (
+                <LoaderCircle className="h-4 w-4 animate-spin" aria-hidden="true" />
+              ) : (
+                <LogOut className="h-4 w-4" aria-hidden="true" />
+              )}
+            </button>
+          </div>
+        </div>
+      </header>
+
+      <main className="mx-auto max-w-6xl space-y-5 px-4 py-5 sm:py-6 print:hidden">
+        <div className="flex flex-col gap-3 sm:flex-row sm:items-end sm:justify-between">
+          <div>
+            <p className="text-[10px] font-bold uppercase tracking-wide text-primary">
+              پنل صاحب کافه
+            </p>
+            <h2 className="mt-1 text-xl font-black">مدیریت منو</h2>
+            <p className="mt-1 max-w-lg text-[11px] leading-5 text-ink-soft">
+              دسته‌بندی‌ها و آیتم‌ها را همین‌جا مدیریت کنید؛ تغییرات همان لحظه
+              در منوی مشتری دیده می‌شود.
+            </p>
+          </div>
+          <div className="flex gap-2">
+            <Link
+              href={`/r/${restaurantSlug}`}
+              target="_blank"
+              rel="noreferrer"
+              className="inline-flex items-center gap-1.5 rounded-2xl border border-line bg-surface px-3.5 py-3 text-[11px] font-bold text-ink-soft shadow-sm transition-colors hover:border-primary/40 hover:text-primary md:hidden"
+            >
+              <ExternalLink className="h-4 w-4" aria-hidden="true" />
+              پیش‌نمایش
+            </Link>
+            <button
+              type="button"
+              onClick={() => openCreateModal()}
               disabled={categoryNames.length === 0}
               title={
                 categoryNames.length === 0
                   ? "ابتدا یک دسته‌بندی بسازید"
                   : "افزودن آیتم جدید"
               }
-              className="bg-amber-800 hover:bg-amber-900 text-white text-xs font-bold px-4 py-3 rounded-2xl flex items-center gap-1.5 transition-colors shadow-sm disabled:opacity-50"
+              className="inline-flex items-center gap-1.5 rounded-2xl bg-primary px-4 py-3 text-[11px] font-bold text-on-primary shadow-lg shadow-primary/20 transition-all hover:bg-primary-strong active:scale-[0.99] disabled:cursor-not-allowed disabled:opacity-50"
             >
-              <Plus className="w-4 h-4" />
-              <span>افزودن آیتم جدید</span>
-            </button>
-            <button
-              onClick={handleLogout}
-              disabled={loggingOut}
-              className="bg-slate-100 hover:bg-slate-200 text-slate-700 text-xs font-bold px-3 py-3 rounded-2xl flex items-center gap-1.5 transition-colors disabled:opacity-50"
-              title="خروج از حساب"
-            >
-              <LogOut className="w-4 h-4" />
-              <span>{loggingOut ? "در حال خروج..." : "خروج"}</span>
+              <Plus className="h-4 w-4" aria-hidden="true" />
+              افزودن آیتم جدید
             </button>
           </div>
-        </header>
+        </div>
 
         {actionError && (
           <div
             role="alert"
-            className="bg-red-50 border border-red-100 text-red-700 text-xs font-bold p-3 rounded-2xl text-center space-y-2"
+            className="flex flex-col items-start gap-3 rounded-2xl border border-danger/25 bg-danger-soft px-4 py-3 text-[11px] font-bold text-danger sm:flex-row sm:items-center sm:justify-between"
           >
-            <p>{actionError}</p>
-            {!menu && (
-              <button
-                type="button"
-                onClick={() => void fetchMenu()}
-                className="bg-white hover:bg-red-100 px-4 py-2 rounded-xl transition-colors"
-              >
-                تلاش دوباره
-              </button>
-            )}
+            <span className="flex items-start gap-2">
+              <CircleAlert
+                className="mt-0.5 h-4 w-4 shrink-0"
+                aria-hidden="true"
+              />
+              {actionError}
+            </span>
+            <button
+              type="button"
+              onClick={() => void fetchMenu()}
+              className="rounded-xl border border-danger/30 bg-surface px-3 py-1.5 text-[10px] font-bold text-danger transition-colors hover:bg-danger/10"
+            >
+              تلاش دوباره
+            </button>
           </div>
         )}
 
-        <section className="bg-white p-5 md:p-6 rounded-3xl shadow-sm border border-amber-100 space-y-4">
-          <div className="flex items-center gap-2 text-slate-800">
-            <Tags className="w-5 h-5 text-amber-800" />
-            <div>
-              <h2 className="font-bold text-sm">مدیریت دسته‌بندی‌ها</h2>
-              <p className="text-xs text-slate-500 mt-1">
-                ابتدا دسته‌بندی را بسازید؛ سپس هنگام افزودن یا ویرایش محصول آن
-                را انتخاب کنید.
-              </p>
-            </div>
-          </div>
-          <form
-            onSubmit={handleAddCategory}
-            className="flex flex-col sm:flex-row gap-2"
-          >
-            <input
-              type="text"
-              aria-label="نام دسته‌بندی جدید"
-              placeholder="نام دسته‌بندی جدید؛ مثلاً صبحانه"
-              value={newCategoryName}
-              onChange={(event) => {
-                setNewCategoryName(event.target.value);
-                setCategoryError(null);
-                setCategorySuccess(null);
-              }}
-              maxLength={50}
-              required
-              className="flex-1 bg-slate-50 border border-slate-200 rounded-xl p-3 text-xs text-slate-800 focus:outline-none focus:ring-2 focus:ring-amber-800/20"
-            />
-            <button
-              type="submit"
-              disabled={categorySaving || !newCategoryName.trim()}
-              className="bg-amber-800 hover:bg-amber-900 text-white text-xs font-bold px-4 py-3 rounded-xl flex items-center justify-center gap-1.5 transition-colors disabled:opacity-50"
-            >
-              <FolderPlus className="w-4 h-4" />
-              <span>
-                {categorySaving ? "در حال افزودن..." : "افزودن دسته‌بندی"}
-              </span>
-            </button>
-          </form>
-          {categoryNames.length > 0 && (
-            <div
-              className="flex flex-wrap gap-2"
-              aria-label="دسته‌بندی‌های موجود"
-            >
-              {categoryNames.map((categoryName) => (
-                <span
-                  key={categoryName}
-                  className="bg-amber-50 text-amber-900 border border-amber-100 px-3 py-1.5 rounded-xl text-xs"
-                >
-                  {categoryName}
-                </span>
-              ))}
-            </div>
-          )}
-          {categoryError && (
-            <p role="alert" className="text-xs text-red-600 font-bold">
-              {categoryError}
-            </p>
-          )}
-          {categorySuccess && (
-            <p role="status" className="text-xs text-emerald-700 font-bold">
-              {categorySuccess}
-            </p>
-          )}
-        </section>
+        <div className="grid grid-cols-2 gap-2.5 sm:grid-cols-4">
+          <StatCard
+            icon={UtensilsCrossed}
+            label="آیتم‌های منو"
+            value={items.length}
+          />
+          <StatCard icon={Tags} label="دسته‌بندی‌ها" value={categoryNames.length} />
+          <StatCard
+            icon={ImageIcon}
+            label="دارای تصویر"
+            value={items.filter((item) => Boolean(item.image_url)).length}
+          />
+          <StatCard
+            icon={Flame}
+            label="آیتم تند"
+            value={items.filter((item) => item.is_spicy).length}
+          />
+        </div>
 
-        <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
-          <section className="bg-white p-6 rounded-3xl shadow-sm border border-amber-100 text-center space-y-4 md:col-span-1">
-            <div className="flex items-center justify-center gap-1.5 text-amber-900 font-bold text-sm">
-              <QrCode className="w-4 h-4" />
-              <span>کد QR کافه</span>
-            </div>
-            <p className="text-xs text-slate-500">
-              این کد را روی میزهای کافه قرار دهید
-            </p>
-            <div className="bg-amber-50 p-4 rounded-2xl inline-block border border-amber-100">
-              <QRCodeSVG value={qrUrl} size={160} />
-            </div>
-            <button
-              onClick={() => window.print()}
-              className="w-full bg-slate-100 hover:bg-slate-200 text-slate-700 text-xs font-bold py-2.5 rounded-xl transition-colors"
-            >
-              پرینت کد QR
-            </button>
-          </section>
-
-          <section className="bg-white p-6 rounded-3xl shadow-sm border border-amber-100 space-y-4 md:col-span-2">
-            <h2 className="font-bold text-sm text-slate-800">
-              مدیریت آیتم‌های منو
-            </h2>
-            <div className="space-y-4">
-              {menu?.items.length === 0 && (
-                <p className="text-xs text-slate-500 text-center py-6">
-                  هنوز آیتمی در منو ثبت نشده است.
+        <div className="grid gap-5 lg:grid-cols-[minmax(0,1fr)_21rem] lg:items-start">
+          <section className="order-2 overflow-visible rounded-3xl border border-line bg-surface shadow-card lg:order-1">
+            <div className="flex items-center justify-between gap-3 px-4 pb-3 pt-4 sm:px-5">
+              <div className="min-w-0">
+                <h3 className="text-sm font-black">آیتم‌های منو</h3>
+                <p className="mt-0.5 text-[10px] text-ink-faint">
+                  {formatNumber(items.length)} آیتم در{" "}
+                  {formatNumber(categoryNames.length)} دسته‌بندی
                 </p>
-              )}
-              {categoryNames.map((categoryName) => (
-                <section
-                  key={categoryName}
-                  className="space-y-3 rounded-2xl border border-amber-100 bg-amber-50/30 p-3"
+              </div>
+              <button
+                type="button"
+                onClick={() => openCreateModal()}
+                disabled={categoryNames.length === 0}
+                className="inline-flex shrink-0 items-center gap-1 rounded-xl border border-line bg-surface-muted px-2.5 py-2 text-[10px] font-bold text-ink-soft transition-colors hover:border-primary/40 hover:text-primary disabled:opacity-50 sm:px-3"
+              >
+                <Plus className="h-3.5 w-3.5" aria-hidden="true" />
+                آیتم جدید
+              </button>
+            </div>
+
+            <MenuCategoryNav
+              categories={categoryList}
+              totalCount={items.length}
+              active={activeCategory}
+              onSelect={scrollToCategory}
+              navRef={navRef}
+              tone="surface"
+              sticky
+              topClassName="top-16"
+              className="border-y border-line/60"
+              containerClassName="flex items-center gap-2 px-4 py-2.5 sm:px-5"
+              action={
+                <button
+                  type="button"
+                  onClick={() => openCreateModal(activeCategory ?? undefined)}
+                  disabled={categoryNames.length === 0}
+                  aria-label="افزودن آیتم جدید"
+                  title="افزودن آیتم جدید"
+                  className="grid h-9 w-9 place-items-center rounded-full bg-primary text-on-primary shadow-md shadow-primary/20 transition-colors hover:bg-primary-strong disabled:opacity-50 md:hidden"
                 >
-                  <div className="flex items-center justify-between gap-2 px-1">
-                    <h3 className="font-bold text-xs text-amber-950">
-                      {categoryName}
-                    </h3>
-                    <span className="text-[10px] text-slate-500">
-                      {menu?.items.filter(
-                        (item) => item.category === categoryName,
-                      ).length ?? 0}{" "}
-                      آیتم
-                    </span>
-                  </div>
-                  {menu?.items
-                    .filter((item) => item.category === categoryName)
-                    .map((item) => (
-                      <div
-                        key={item.id}
-                        className="p-3.5 bg-slate-50 rounded-2xl border border-slate-100 space-y-3"
-                      >
-                        <div className="flex items-center gap-3">
-                          {item.image_url ? (
-                            <NextImage
-                              src={item.image_url}
-                              alt={item.name}
-                              width={80}
-                              height={80}
-                              unoptimized
-                              className="w-20 h-20 shrink-0 rounded-2xl object-cover border border-slate-200"
-                            />
-                          ) : (
-                            <div className="w-20 h-20 shrink-0 rounded-2xl bg-amber-50 border border-amber-100 flex items-center justify-center text-amber-700">
-                              <ImageIcon className="w-6 h-6" />
+                  <Plus className="h-4 w-4" aria-hidden="true" />
+                </button>
+              }
+            />
+
+            <div ref={menuRef} className="space-y-7 p-4 sm:p-5">
+              {categoryNames.length === 0 && (
+                <div className="rounded-2xl border border-dashed border-line bg-surface-muted/50 p-8 text-center">
+                  <span className="mx-auto grid h-12 w-12 place-items-center rounded-2xl bg-primary-soft text-primary">
+                    <Tags className="h-5 w-5" aria-hidden="true" />
+                  </span>
+                  <h4 className="mt-3 text-xs font-black">
+                    ابتدا یک دسته‌بندی بسازید
+                  </h4>
+                  <p className="mt-1 text-[10px] leading-5 text-ink-faint">
+                    برای افزودن آیتم، ابتدا در بخش «دسته‌بندی‌ها» یک دسته
+                    ایجاد کنید.
+                  </p>
+                </div>
+              )}
+
+              {categoryNames.map((categoryName) => {
+                const categoryItems = items.filter(
+                  (item) => item.category === categoryName,
+                );
+                return (
+                  <section
+                    key={categoryName}
+                    data-category-name={categoryName}
+                    className="scroll-mt-36 space-y-3"
+                  >
+                    <div className="flex items-center gap-2.5">
+                      <span className="grid h-7 w-7 shrink-0 place-items-center rounded-lg border border-line bg-surface-muted text-primary">
+                        <Tags className="h-3.5 w-3.5" aria-hidden="true" />
+                      </span>
+                      <h4 className="text-xs font-black">{categoryName}</h4>
+                      <span className="rounded-full bg-surface-muted px-2 py-0.5 text-[9px] font-bold text-ink-faint">
+                        {formatNumber(categoryItems.length)} آیتم
+                      </span>
+                      <span className="h-px flex-1 bg-line" aria-hidden="true" />
+                    </div>
+
+                    {categoryItems.length === 0 ? (
+                      <div className="flex flex-col items-center gap-2 rounded-2xl border border-dashed border-line bg-surface-muted/40 px-4 py-5 text-center">
+                        <p className="text-[10px] text-ink-faint">
+                          هنوز آیتمی در این دسته‌بندی نیست.
+                        </p>
+                        <button
+                          type="button"
+                          onClick={() => openCreateModal(categoryName)}
+                          className="inline-flex items-center gap-1 rounded-lg bg-surface px-2.5 py-1.5 text-[10px] font-bold text-primary shadow-sm transition-colors hover:bg-primary-soft"
+                        >
+                          <Plus className="h-3 w-3" aria-hidden="true" />
+                          افزودن آیتم
+                        </button>
+                      </div>
+                    ) : (
+                      categoryItems.map((item) => (
+                        <article
+                          key={item.id}
+                          className="group flex flex-col gap-3 rounded-2xl border border-line bg-surface p-3 transition-colors hover:border-line-strong sm:flex-row sm:items-center"
+                        >
+                          <div className="flex min-w-0 flex-1 items-center gap-3">
+                            <div className="relative h-16 w-16 shrink-0 overflow-hidden rounded-xl border border-line/60 bg-surface-muted">
+                              {item.image_url ? (
+                                <NextImage
+                                  src={item.image_url}
+                                  alt={item.name}
+                                  width={128}
+                                  height={128}
+                                  unoptimized
+                                  className="h-full w-full object-cover"
+                                />
+                              ) : (
+                                <span className="grid h-full place-items-center text-ink-faint">
+                                  <ImageIcon
+                                    className="h-5 w-5"
+                                    aria-hidden="true"
+                                  />
+                                </span>
+                              )}
                             </div>
-                          )}
-                          <div className="space-y-0.5 min-w-0">
-                            <h3 className="font-bold text-xs text-slate-800">
-                              {item.name}
-                            </h3>
-                            <p className="text-[11px] text-slate-500">
-                              {item.description}
-                            </p>
-                            <span className="text-xs font-bold text-amber-900 block mt-1">
-                              {item.price
-                                ? (item.price.amount / 10).toLocaleString(
-                                    "fa-IR",
-                                  )
-                                : 0}{" "}
-                              تومان
-                            </span>
+                            <div className="min-w-0 flex-1">
+                              <div className="flex flex-wrap items-center gap-1.5">
+                                <h5 className="text-xs font-black">
+                                  {item.name}
+                                </h5>
+                                {item.is_spicy && (
+                                  <span className="inline-flex items-center gap-0.5 rounded-full bg-danger-soft px-1.5 py-0.5 text-[9px] font-bold text-danger">
+                                    <Flame
+                                      className="h-2.5 w-2.5"
+                                      aria-hidden="true"
+                                    />
+                                    تند
+                                  </span>
+                                )}
+                              </div>
+                              <p className="mt-0.5 line-clamp-1 text-[10px] text-ink-soft">
+                                {item.description || "بدون توضیحات"}
+                              </p>
+                              <div className="mt-1.5 flex flex-wrap items-baseline gap-1">
+                                <span className="text-xs font-black text-primary">
+                                  {formatItemPrice(item.price)}
+                                </span>
+                                <span className="text-[9px] font-bold text-ink-faint">
+                                  تومان
+                                </span>
+                              </div>
+                            </div>
                           </div>
-                        </div>
-                        <div className="flex items-center justify-between gap-2 pt-2 border-t border-slate-200/70">
-                          <label
-                            className={`text-xs font-bold text-amber-800 hover:bg-amber-50 px-3 py-2 rounded-xl transition-colors flex items-center gap-1.5 cursor-pointer ${
-                              uploadingItemKey === item.id
-                                ? "opacity-50 pointer-events-none"
-                                : ""
-                            }`}
-                          >
-                            <ImageIcon className="w-4 h-4" />
-                            <span>
-                              {uploadingItemKey === item.id
-                                ? "در حال بارگذاری..."
-                                : item.image_url
-                                  ? "تغییر تصویر"
-                                  : "افزودن تصویر"}
-                            </span>
-                            <input
-                              type="file"
-                              accept=".jpg,.jpeg,.png,.webp,image/jpeg,image/png,image/webp"
-                              className="hidden"
-                              disabled={uploadingItemKey === item.id}
-                              onChange={(event) => {
-                                const file = event.target.files?.[0];
-                                event.target.value = "";
-                                if (file) void handleImageUpload(item.id, file);
-                              }}
-                            />
-                          </label>
-                          <div className="flex items-center gap-1">
+
+                          <div className="flex items-center justify-end gap-1 border-t border-line/70 pt-2 sm:border-0 sm:pt-0">
+                            <label
+                              className={cn(
+                                "inline-flex cursor-pointer items-center gap-1 rounded-xl px-2 py-2 text-[10px] font-bold text-ink-soft transition-colors hover:bg-surface-muted hover:text-primary",
+                                uploadingItemKey === item.id &&
+                                  "pointer-events-none opacity-50",
+                              )}
+                              title={
+                                item.image_url ? "تغییر تصویر" : "افزودن تصویر"
+                              }
+                            >
+                              {uploadingItemKey === item.id ? (
+                                <LoaderCircle
+                                  className="h-3.5 w-3.5 animate-spin"
+                                  aria-hidden="true"
+                                />
+                              ) : (
+                                <ImagePlus
+                                  className="h-3.5 w-3.5"
+                                  aria-hidden="true"
+                                />
+                              )}
+                              <span className="hidden sm:inline">
+                                {uploadingItemKey === item.id
+                                  ? "در حال بارگذاری"
+                                  : item.image_url
+                                    ? "تصویر"
+                                    : "افزودن تصویر"}
+                              </span>
+                              <input
+                                type="file"
+                                accept=".jpg,.jpeg,.png,.webp,image/jpeg,image/png,image/webp"
+                                className="sr-only"
+                                disabled={uploadingItemKey === item.id}
+                                onChange={(event) => {
+                                  const file = event.target.files?.[0];
+                                  event.target.value = "";
+                                  if (file) void handleImageUpload(item.id, file);
+                                }}
+                              />
+                            </label>
                             <button
                               type="button"
                               onClick={() => openEditModal(item)}
-                              className="px-3 py-2 shrink-0 text-slate-600 hover:bg-slate-200/70 rounded-xl transition-colors flex items-center gap-1.5 text-xs font-bold"
+                              aria-label={`ویرایش ${item.name}`}
                               title="ویرایش آیتم"
+                              className="inline-flex items-center gap-1 rounded-xl px-2 py-2 text-[10px] font-bold text-ink-soft transition-colors hover:bg-surface-muted hover:text-primary"
                             >
-                              <Pencil className="w-4 h-4" />
-                              <span>ویرایش</span>
+                              <Pencil className="h-3.5 w-3.5" aria-hidden="true" />
+                              <span className="hidden sm:inline">ویرایش</span>
                             </button>
                             <button
-                              onClick={() => handleDeleteItem(item.id)}
-                              disabled={deletingItemKey === item.id}
-                              className="p-2 shrink-0 text-red-500 hover:bg-red-50 rounded-xl transition-colors disabled:opacity-40"
-                              title="حذف آیتم"
+                              type="button"
+                              onClick={() => setItemPendingDelete(item)}
                               aria-label={`حذف ${item.name}`}
+                              title="حذف آیتم"
+                              className="inline-flex items-center gap-1 rounded-xl px-2 py-2 text-[10px] font-bold text-ink-faint transition-colors hover:bg-danger-soft hover:text-danger"
                             >
-                              <Trash2 className="w-4 h-4" />
+                              <Trash2 className="h-3.5 w-3.5" aria-hidden="true" />
+                              <span className="hidden sm:inline">حذف</span>
                             </button>
                           </div>
-                        </div>
-                      </div>
-                    ))}
-                </section>
-              ))}
+                        </article>
+                      ))
+                    )}
+                  </section>
+                );
+              })}
             </div>
           </section>
-        </div>
-      </div>
 
-      {showAddModal && (
-        <div className="fixed inset-0 bg-black/40 backdrop-blur-sm flex items-center justify-center p-4 z-50">
-          <div
-            role="dialog"
-            aria-modal="true"
-            aria-labelledby="item-form-title"
-            className="bg-white w-full max-w-md max-h-[90svh] overflow-y-auto p-6 rounded-3xl shadow-lg space-y-4"
-          >
-            <h3
-              id="item-form-title"
-              className="font-bold text-sm text-slate-800"
-            >
-              {editingItemKey ? "ویرایش آیتم" : "افزودن آیتم جدید به منو"}
-            </h3>
-            <form onSubmit={handleSubmitItem} className="space-y-3">
+          <aside className="order-1 space-y-4 lg:order-2 lg:sticky lg:top-20">
+            <section className="rounded-3xl border border-line bg-surface shadow-card">
+              <div className="flex items-center gap-2.5 border-b border-line/60 px-4 py-3.5">
+                <span className="grid h-8 w-8 place-items-center rounded-xl bg-primary-soft text-primary">
+                  <Tags className="h-4 w-4" aria-hidden="true" />
+                </span>
+                <div className="min-w-0 flex-1">
+                  <h3 className="text-sm font-black">دسته‌بندی‌ها</h3>
+                  <p className="text-[10px] text-ink-faint">
+                    {formatNumber(categoryNames.length)} دسته‌بندی ساخته‌شده
+                  </p>
+                </div>
+              </div>
+
+              <div className="space-y-3 p-4">
+                <form onSubmit={handleAddCategory} className="flex gap-2">
+                  <input
+                    type="text"
+                    aria-label="نام دسته‌بندی جدید"
+                    placeholder="نام دسته جدید؛ مثلاً صبحانه"
+                    value={newCategoryName}
+                    onChange={(event) => {
+                      setNewCategoryName(event.target.value);
+                      setCategoryError(null);
+                    }}
+                    maxLength={50}
+                    required
+                    className="min-w-0 flex-1 rounded-xl border border-line bg-surface-muted px-3 py-2.5 text-[11px] text-ink outline-none transition-all placeholder:text-ink-faint focus:border-primary focus:ring-4 focus:ring-primary/15"
+                  />
+                  <button
+                    type="submit"
+                    disabled={categorySaving || !newCategoryName.trim()}
+                    className="inline-flex shrink-0 items-center gap-1 rounded-xl bg-primary px-3 py-2.5 text-[10px] font-bold text-on-primary transition-colors hover:bg-primary-strong disabled:opacity-50"
+                  >
+                    {categorySaving ? (
+                      <LoaderCircle
+                        className="h-3.5 w-3.5 animate-spin"
+                        aria-hidden="true"
+                      />
+                    ) : (
+                      <Plus className="h-3.5 w-3.5" aria-hidden="true" />
+                    )}
+                    افزودن
+                  </button>
+                </form>
+
+                {categoryError && (
+                  <p
+                    role="alert"
+                    className="rounded-xl border border-danger/25 bg-danger-soft px-2.5 py-1.5 text-[10px] font-bold text-danger"
+                  >
+                    {categoryError}
+                  </p>
+                )}
+
+                {categoryNames.length === 0 ? (
+                  <p className="rounded-xl border border-dashed border-line bg-surface-muted/50 px-3 py-4 text-center text-[10px] text-ink-faint">
+                    هنوز دسته‌بندی‌ای نساخته‌اید؛ با فرم بالا شروع کنید.
+                  </p>
+                ) : (
+                  <ul className="space-y-1.5">
+                    {categoryNames.map((categoryName) => {
+                      const count = categoryCounts.get(categoryName) ?? 0;
+                      return (
+                        <li
+                          key={categoryName}
+                          className="flex items-center gap-2 rounded-xl border border-line/70 bg-surface-muted/50 px-2.5 py-2"
+                        >
+                          <span className="grid h-6 w-6 shrink-0 place-items-center rounded-lg bg-surface text-[9px] font-black text-ink-soft shadow-sm">
+                            {formatNumber(count)}
+                          </span>
+                          <span className="min-w-0 flex-1 truncate text-[11px] font-bold text-ink">
+                            {categoryName}
+                          </span>
+                          <button
+                            type="button"
+                            onClick={() => openCategoryDelete(categoryName)}
+                            aria-label={`حذف دسته‌بندی ${categoryName}`}
+                            title="حذف دسته‌بندی"
+                            className="grid h-7 w-7 shrink-0 place-items-center rounded-lg text-ink-faint transition-colors hover:bg-danger-soft hover:text-danger"
+                          >
+                            <Trash2 className="h-3.5 w-3.5" aria-hidden="true" />
+                          </button>
+                        </li>
+                      );
+                    })}
+                  </ul>
+                )}
+
+                <p className="text-[10px] leading-5 text-ink-faint">
+                  با حذف دسته، می‌توانید آیتم‌هایش را به دسته دیگری منتقل کنید
+                  یا همراه آن‌ها حذف کنید.
+                </p>
+              </div>
+            </section>
+
+            <section className="rounded-3xl border border-line bg-surface shadow-card">
+              <div className="flex items-center gap-2.5 border-b border-line/60 px-4 py-3.5">
+                <span className="grid h-8 w-8 place-items-center rounded-xl bg-primary-soft text-primary">
+                  <QrCode className="h-4 w-4" aria-hidden="true" />
+                </span>
+                <div className="min-w-0 flex-1">
+                  <h3 className="text-sm font-black">کد QR میزها</h3>
+                  <p className="text-[10px] text-ink-faint">
+                    اسکن مشتری، منو را باز می‌کند
+                  </p>
+                </div>
+              </div>
+              <div className="flex flex-col items-center gap-3 p-4">
+                <div className="rounded-2xl border border-line bg-white p-3 shadow-sm">
+                  <QRCodeSVG
+                    value={qrUrl}
+                    size={148}
+                    bgColor="#ffffff"
+                    fgColor="#111827"
+                    level="M"
+                  />
+                </div>
+                <p className="text-center text-[10px] leading-5 text-ink-faint">
+                  این کد را روی میزها قرار دهید تا مشتری بدون نصب اپلیکیشن منو
+                  را ببیند.
+                </p>
+                <div className="grid w-full grid-cols-2 gap-2">
+                  <button
+                    type="button"
+                    onClick={() => window.print()}
+                    className="inline-flex items-center justify-center gap-1 rounded-xl border border-line bg-surface-muted px-2 py-2 text-[10px] font-bold text-ink-soft transition-colors hover:border-primary/40 hover:text-primary"
+                  >
+                    <Printer className="h-3.5 w-3.5" aria-hidden="true" />
+                    پرینت
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => void copyMenuLink()}
+                    className="inline-flex items-center justify-center gap-1 rounded-xl border border-line bg-surface-muted px-2 py-2 text-[10px] font-bold text-ink-soft transition-colors hover:border-primary/40 hover:text-primary"
+                  >
+                    <Copy className="h-3.5 w-3.5" aria-hidden="true" />
+                    کپی لینک
+                  </button>
+                </div>
+              </div>
+            </section>
+          </aside>
+        </div>
+      </main>
+
+      {/* --- فرم افزودن یا ویرایش آیتم --- */}
+      <Modal
+        open={showItemModal}
+        onClose={closeItemModal}
+        labelledBy="item-form-title"
+        className="sm:max-w-md"
+      >
+        <form onSubmit={handleSubmitItem}>
+          <div className="flex items-center gap-3 border-b border-line/60 px-5 pb-4 pt-5 pe-14">
+            <span className="grid h-10 w-10 shrink-0 place-items-center rounded-2xl bg-primary-soft text-primary">
+              {editingItemKey ? (
+                <Pencil className="h-4 w-4" aria-hidden="true" />
+              ) : (
+                <Plus className="h-4 w-4" aria-hidden="true" />
+              )}
+            </span>
+            <div className="min-w-0">
+              <h2 id="item-form-title" className="text-sm font-black">
+                {editingItemKey ? "ویرایش آیتم" : "افزودن آیتم جدید"}
+              </h2>
+              <p className="mt-0.5 text-[10px] text-ink-faint">
+                {editingItemKey
+                  ? "تغییرات پس از ذخیره در منوی مشتری نمایش داده می‌شود."
+                  : "آیتم جدید بلافاصله در منوی مشتری قابل مشاهده است."}
+              </p>
+            </div>
+          </div>
+
+          <div className="space-y-4 p-5">
+            <div className="space-y-1.5">
+              <label
+                htmlFor="item-name"
+                className="text-[11px] font-bold text-ink-soft"
+              >
+                نام آیتم <span className="text-danger">*</span>
+              </label>
               <input
+                id="item-name"
                 type="text"
-                aria-label="نام غذا یا نوشیدنی"
-                placeholder="نام غذا یا نوشیدنی"
+                placeholder="مثلاً لاته"
                 value={name}
                 onChange={(event) => setName(event.target.value)}
                 maxLength={100}
                 required
-                className="w-full bg-slate-50 border border-slate-200 rounded-xl p-3 text-xs text-slate-800 focus:outline-none focus:ring-2 focus:ring-amber-800/20"
+                className="w-full rounded-xl border border-line bg-surface-muted px-3 py-2.5 text-[11px] text-ink outline-none transition-all placeholder:text-ink-faint focus:border-primary focus:ring-4 focus:ring-primary/15"
               />
-              <select
-                aria-label="دسته‌بندی"
-                value={category}
-                onChange={(event) => setCategory(event.target.value)}
-                required
-                disabled={categoryNames.length === 0}
-                className="w-full bg-slate-50 border border-slate-200 rounded-xl p-3 text-xs text-slate-800 focus:outline-none disabled:opacity-60"
+            </div>
+
+            <div className="space-y-1.5">
+              <span className="text-[11px] font-bold text-ink-soft">
+                دسته‌بندی <span className="text-danger">*</span>
+              </span>
+              {categoryNames.length === 0 ? (
+                <p className="rounded-xl border border-dashed border-line bg-surface-muted/50 px-3 py-3 text-[10px] text-ink-faint">
+                  هنوز دسته‌بندی‌ای نساخته‌اید. ابتدا از بخش «دسته‌بندی‌ها» یک
+                  دسته بسازید.
+                </p>
+              ) : (
+                <div className="flex flex-wrap gap-1.5">
+                  {categoryNames.map((categoryName) => (
+                    <button
+                      key={categoryName}
+                      type="button"
+                      onClick={() => setCategory(categoryName)}
+                      aria-pressed={category === categoryName}
+                      className={cn(
+                        "rounded-full border px-3 py-1.5 text-[10px] font-bold transition-colors",
+                        category === categoryName
+                          ? "border-transparent bg-primary text-on-primary shadow-sm"
+                          : "border-line bg-surface text-ink-soft hover:border-primary/40 hover:text-ink",
+                      )}
+                    >
+                      {categoryName}
+                    </button>
+                  ))}
+                </div>
+              )}
+            </div>
+
+            <div className="space-y-1.5">
+              <label
+                htmlFor="item-description"
+                className="text-[11px] font-bold text-ink-soft"
               >
-                <option value="" disabled>
-                  {categoryNames.length === 0
-                    ? "ابتدا یک دسته‌بندی بسازید"
-                    : "انتخاب دسته‌بندی"}
-                </option>
-                {categoryNames.map((categoryName) => (
-                  <option key={categoryName} value={categoryName}>
-                    {categoryName}
-                  </option>
-                ))}
-              </select>
+                توضیحات و ترکیبات
+              </label>
               <textarea
-                aria-label="توضیحات و ترکیبات"
-                placeholder="توضیحات و ترکیبات..."
+                id="item-description"
+                placeholder="ترکیبات، طعم و هر نکته‌ای که مشتری باید بداند..."
                 value={description}
                 onChange={(event) => setDescription(event.target.value)}
                 maxLength={500}
-                className="w-full bg-slate-50 border border-slate-200 rounded-xl p-3 text-xs text-slate-800 focus:outline-none focus:ring-2 focus:ring-amber-800/20 h-20"
+                className="h-20 w-full resize-none rounded-xl border border-line bg-surface-muted px-3 py-2.5 text-[11px] leading-5 text-ink outline-none transition-all placeholder:text-ink-faint focus:border-primary focus:ring-4 focus:ring-primary/15"
               />
-              <input
-                type="number"
-                aria-label="قیمت به تومان"
-                placeholder="قیمت به تومان (مثلا 145000)"
-                value={priceToman}
-                onChange={(event) => setPriceToman(event.target.value)}
-                min="0"
-                required
-                className="w-full bg-slate-50 border border-slate-200 rounded-xl p-3 text-xs text-slate-800 focus:outline-none focus:ring-2 focus:ring-amber-800/20"
-              />
-              <div className="space-y-1.5">
-                <label
-                  htmlFor="new-item-image"
-                  className="text-xs font-bold text-slate-700"
-                >
-                  {editingItemKey
-                    ? "تعویض تصویر (اختیاری)"
-                    : "تصویر آیتم (اختیاری)"}
-                </label>
+            </div>
+
+            <div className="space-y-1.5">
+              <label
+                htmlFor="item-price"
+                className="text-[11px] font-bold text-ink-soft"
+              >
+                قیمت (تومان) <span className="text-danger">*</span>
+              </label>
+              <div className="relative">
                 <input
-                  id="new-item-image"
+                  id="item-price"
+                  type="number"
+                  placeholder="۱۴۵۰۰۰"
+                  value={priceToman}
+                  onChange={(event) => setPriceToman(event.target.value)}
+                  min="0"
+                  required
+                  className="w-full rounded-xl border border-line bg-surface-muted py-2.5 pe-16 ps-3 text-[11px] text-ink outline-none transition-all placeholder:text-ink-faint focus:border-primary focus:ring-4 focus:ring-primary/15"
+                />
+                <span className="pointer-events-none absolute end-3 top-2.5 text-[10px] font-bold text-ink-faint">
+                  تومان
+                </span>
+              </div>
+            </div>
+
+            <div className="space-y-1.5">
+              <span className="text-[11px] font-bold text-ink-soft">
+                تصویر آیتم (اختیاری)
+              </span>
+              <label
+                htmlFor="item-image"
+                className="flex cursor-pointer items-center gap-3 rounded-2xl border border-dashed border-line bg-surface-muted/50 p-3 transition-colors hover:border-primary/50"
+              >
+                <span className="relative grid h-14 w-14 shrink-0 place-items-center overflow-hidden rounded-xl border border-line bg-surface text-ink-faint">
+                  {imageFile && imagePreviewUrl ? (
+                    // eslint-disable-next-line @next/next/no-img-element
+                    <img
+                      src={imagePreviewUrl}
+                      alt="پیش‌نمایش تصویر آیتم"
+                      className="h-full w-full object-cover"
+                    />
+                  ) : editingItem?.image_url ? (
+                    <NextImage
+                      src={editingItem.image_url}
+                      alt={editingItem.name}
+                      width={96}
+                      height={96}
+                      unoptimized
+                      className="h-full w-full object-cover"
+                    />
+                  ) : (
+                    <ImageIcon className="h-5 w-5" aria-hidden="true" />
+                  )}
+                </span>
+                <span className="min-w-0 flex-1">
+                  <span className="block text-[10px] font-bold text-ink">
+                    {imageFile
+                      ? imageFile.name
+                      : editingItem?.image_url
+                        ? "تصویر فعلی آیتم"
+                        : "انتخاب تصویر برای آیتم"}
+                  </span>
+                  <span className="mt-0.5 block text-[9px] text-ink-faint">
+                    JPG، PNG یا WebP؛ حداکثر ۵ مگابایت
+                  </span>
+                </span>
+                <span className="shrink-0 rounded-lg border border-line bg-surface px-2.5 py-1.5 text-[10px] font-bold text-primary">
+                  انتخاب
+                </span>
+                <input
+                  id="item-image"
                   type="file"
                   accept=".jpg,.jpeg,.png,.webp,image/jpeg,image/png,image/webp"
                   onChange={handleSelectNewImage}
-                  className="w-full bg-slate-50 border border-slate-200 rounded-xl p-2.5 text-xs text-slate-600 file:bg-amber-100 file:text-amber-900 file:border-0 file:rounded-lg file:px-3 file:py-2 file:ml-3 file:text-xs file:font-bold cursor-pointer"
+                  className="sr-only"
                 />
-                <p className="text-[10px] text-slate-400">
-                  JPG، PNG یا WebP؛ حداکثر ۵ مگابایت
-                </p>
-                {imageFile && (
-                  <p className="text-[11px] text-slate-500 truncate">
-                    تصویر انتخاب‌شده: {imageFile.name}
-                  </p>
-                )}
-              </div>
-              <label className="flex items-center gap-2 text-xs text-slate-700 cursor-pointer">
+              </label>
+            </div>
+
+            <label className="flex cursor-pointer items-center justify-between gap-3 rounded-2xl border border-line bg-surface-muted/50 px-3.5 py-3">
+              <span className="flex items-center gap-2 text-[11px] font-bold text-ink-soft">
+                <Flame className="h-4 w-4 text-danger" aria-hidden="true" />
+                طعم تند دارد
+              </span>
+              <span className="relative inline-flex h-6 w-11 shrink-0 items-center">
                 <input
                   type="checkbox"
                   checked={isSpicy}
                   onChange={(event) => setIsSpicy(event.target.checked)}
-                  className="rounded text-amber-800"
+                  className="peer sr-only"
+                  aria-label="طعم تند دارد"
                 />
-                <span>طعم تند دارد</span>
-              </label>
-              {formError && (
-                <p
-                  role="alert"
-                  className="text-xs text-red-600 text-center font-bold"
-                >
-                  {formError}
-                </p>
+                <span className="absolute inset-0 rounded-full bg-line transition-colors peer-checked:bg-primary" />
+                <span className="absolute right-0.5 top-0.5 h-5 w-5 rounded-full bg-white shadow-sm transition-transform peer-checked:-translate-x-5" />
+              </span>
+            </label>
+
+            {formError && (
+              <p
+                role="alert"
+                className="rounded-xl border border-danger/25 bg-danger-soft px-3 py-2 text-[10px] font-bold leading-5 text-danger"
+              >
+                {formError}
+              </p>
+            )}
+          </div>
+
+          <div className="sticky bottom-0 flex gap-2 border-t border-line/60 bg-surface/95 px-5 py-3.5 backdrop-blur">
+            <button
+              type="submit"
+              disabled={saving || categoryNames.length === 0}
+              className="inline-flex flex-1 items-center justify-center gap-1.5 rounded-xl bg-primary px-4 py-2.5 text-[11px] font-bold text-on-primary transition-colors hover:bg-primary-strong disabled:opacity-50"
+            >
+              {saving && (
+                <LoaderCircle
+                  className="h-3.5 w-3.5 animate-spin"
+                  aria-hidden="true"
+                />
               )}
-              <div className="flex gap-2 pt-2">
-                <button
-                  type="submit"
-                  disabled={saving || !category}
-                  className="flex-1 bg-amber-800 hover:bg-amber-900 text-white font-bold py-2.5 rounded-xl text-xs disabled:opacity-50"
-                >
-                  {saving
-                    ? "در حال ذخیره..."
-                    : editingItemKey
-                      ? "ذخیره تغییرات"
-                      : "ذخیره آیتم"}
-                </button>
-                <button
-                  type="button"
-                  onClick={closeAddModal}
-                  disabled={saving}
-                  className="bg-slate-100 text-slate-700 font-bold px-4 py-2.5 rounded-xl text-xs disabled:opacity-50"
-                >
-                  انصراف
-                </button>
-              </div>
-            </form>
+              {saving
+                ? "در حال ذخیره..."
+                : editingItemKey
+                  ? "ذخیره تغییرات"
+                  : "ذخیره آیتم"}
+            </button>
+            <button
+              type="button"
+              onClick={closeItemModal}
+              disabled={saving}
+              className="rounded-xl border border-line bg-surface px-4 py-2.5 text-[11px] font-bold text-ink-soft transition-colors hover:bg-surface-muted disabled:opacity-50"
+            >
+              انصراف
+            </button>
+          </div>
+        </form>
+      </Modal>
+
+      {/* --- تأیید حذف آیتم --- */}
+      <Modal
+        open={itemPendingDelete !== null}
+        onClose={() => !deletingItem && setItemPendingDelete(null)}
+        labelledBy="delete-item-title"
+        showClose={false}
+        className="max-w-sm"
+      >
+        <div className="p-5 pt-7 text-center">
+          <span className="mx-auto grid h-12 w-12 place-items-center rounded-2xl bg-danger-soft text-danger">
+            <Trash2 className="h-5 w-5" aria-hidden="true" />
+          </span>
+          <h2 id="delete-item-title" className="mt-3 text-sm font-black">
+            حذف آیتم از منو
+          </h2>
+          <p className="mt-2 text-[11px] leading-6 text-ink-soft">
+            آیا از حذف «{itemPendingDelete?.name}» اطمینان دارید؟ این عمل قابل
+            بازگشت نیست.
+          </p>
+          <div className="mt-5 flex gap-2">
+            <button
+              type="button"
+              onClick={() => void confirmDeleteItem()}
+              disabled={deletingItem}
+              className="inline-flex flex-1 items-center justify-center gap-1.5 rounded-xl bg-danger px-4 py-2.5 text-[11px] font-bold text-white transition-opacity hover:opacity-90 disabled:opacity-50"
+            >
+              {deletingItem && (
+                <LoaderCircle
+                  className="h-3.5 w-3.5 animate-spin"
+                  aria-hidden="true"
+                />
+              )}
+              {deletingItem ? "در حال حذف..." : "حذف آیتم"}
+            </button>
+            <button
+              type="button"
+              onClick={() => setItemPendingDelete(null)}
+              disabled={deletingItem}
+              className="rounded-xl border border-line bg-surface px-4 py-2.5 text-[11px] font-bold text-ink-soft transition-colors hover:bg-surface-muted disabled:opacity-50"
+            >
+              انصراف
+            </button>
           </div>
         </div>
-      )}
+      </Modal>
+
+      {/* --- تأیید حذف دسته‌بندی --- */}
+      <Modal
+        open={categoryPendingDelete !== null}
+        onClose={closeCategoryDelete}
+        labelledBy="delete-category-title"
+        showClose={false}
+        className="max-w-md"
+      >
+        <div className="p-5 pt-7">
+          <div className="text-center">
+            <span className="mx-auto grid h-12 w-12 place-items-center rounded-2xl bg-danger-soft text-danger">
+              <Trash2 className="h-5 w-5" aria-hidden="true" />
+            </span>
+            <h2 id="delete-category-title" className="mt-3 text-sm font-black">
+              حذف دسته‌بندی «{categoryPendingDelete}»
+            </h2>
+            <p className="mt-2 text-[11px] leading-6 text-ink-soft">
+              {categoryPendingCount === 0
+                ? "این دسته‌بندی خالی است؛ با حذف آن هیچ آیتمی پاک نمی‌شود."
+                : `این دسته‌بندی ${formatNumber(categoryPendingCount)} آیتم دارد. مشخص کنید آیتم‌ها چه شوند.`}
+            </p>
+          </div>
+
+          {categoryPendingCount > 0 && (
+            <div className="mt-4 space-y-2">
+              <label
+                className={cn(
+                  "flex cursor-pointer items-start gap-2.5 rounded-2xl border p-3 transition-colors",
+                  categoryDeleteMode === "move"
+                    ? "border-primary bg-primary-soft"
+                    : "border-line bg-surface-muted/50",
+                  otherCategories.length === 0 &&
+                    "cursor-not-allowed opacity-50",
+                )}
+              >
+                <input
+                  type="radio"
+                  name="category-delete-strategy"
+                  value="move"
+                  checked={categoryDeleteMode === "move"}
+                  onChange={() => setCategoryDeleteMode("move")}
+                  disabled={otherCategories.length === 0}
+                  className="mt-0.5 h-3.5 w-3.5 accent-[var(--primary)]"
+                />
+                <span className="min-w-0 flex-1">
+                  <span className="block text-[11px] font-bold">
+                    انتقال آیتم‌ها به دسته دیگر
+                  </span>
+                  <span className="mt-0.5 block text-[10px] text-ink-faint">
+                    آیتم‌ها و تصاویرشان حفظ می‌شوند و فقط دسته‌بندی حذف می‌شود.
+                  </span>
+                  {categoryDeleteMode === "move" &&
+                    otherCategories.length > 0 && (
+                      <select
+                        value={categoryMoveTarget}
+                        onChange={(event) =>
+                          setCategoryMoveTarget(event.target.value)
+                        }
+                        aria-label="دسته‌بندی مقصد"
+                        className="mt-2 w-full rounded-lg border border-line bg-surface px-2.5 py-2 text-[10px] font-bold text-ink outline-none focus:border-primary"
+                      >
+                        {otherCategories.map((categoryName) => (
+                          <option key={categoryName} value={categoryName}>
+                            {categoryName}
+                          </option>
+                        ))}
+                      </select>
+                    )}
+                </span>
+              </label>
+
+              <label
+                className={cn(
+                  "flex cursor-pointer items-start gap-2.5 rounded-2xl border p-3 transition-colors",
+                  categoryDeleteMode === "delete_items"
+                    ? "border-danger bg-danger-soft"
+                    : "border-line bg-surface-muted/50",
+                )}
+              >
+                <input
+                  type="radio"
+                  name="category-delete-strategy"
+                  value="delete_items"
+                  checked={categoryDeleteMode === "delete_items"}
+                  onChange={() => setCategoryDeleteMode("delete_items")}
+                  className="mt-0.5 h-3.5 w-3.5 accent-[var(--danger)]"
+                />
+                <span className="min-w-0 flex-1">
+                  <span className="block text-[11px] font-bold">
+                    حذف دسته‌بندی همراه با همه آیتم‌هایش
+                  </span>
+                  <span className="mt-0.5 block text-[10px] leading-5 text-ink-faint">
+                    {formatNumber(categoryPendingCount)} آیتم و تصاویرشان برای
+                    همیشه حذف می‌شوند.
+                  </span>
+                </span>
+              </label>
+
+              {otherCategories.length === 0 && (
+                <p className="flex items-start gap-1.5 rounded-xl border border-warning/30 bg-warning-soft px-2.5 py-2 text-[10px] font-bold leading-5 text-warning">
+                  <TriangleAlert
+                    className="mt-0.5 h-3 w-3 shrink-0"
+                    aria-hidden="true"
+                  />
+                  دسته دیگری وجود ندارد؛ برای انتقال آیتم‌ها ابتدا یک دسته جدید
+                  بسازید.
+                </p>
+              )}
+            </div>
+          )}
+
+          {categoryDeleteError && (
+            <p
+              role="alert"
+              className="mt-3 rounded-xl border border-danger/25 bg-danger-soft px-3 py-2 text-[10px] font-bold text-danger"
+            >
+              {categoryDeleteError}
+            </p>
+          )}
+
+          <div className="mt-5 flex gap-2">
+            <button
+              type="button"
+              onClick={() => void confirmDeleteCategory()}
+              disabled={deletingCategory}
+              className="inline-flex flex-1 items-center justify-center gap-1.5 rounded-xl bg-danger px-4 py-2.5 text-[11px] font-bold text-white transition-opacity hover:opacity-90 disabled:opacity-50"
+            >
+              {deletingCategory && (
+                <LoaderCircle
+                  className="h-3.5 w-3.5 animate-spin"
+                  aria-hidden="true"
+                />
+              )}
+              {deletingCategory ? "در حال حذف..." : "حذف دسته‌بندی"}
+            </button>
+            <button
+              type="button"
+              onClick={closeCategoryDelete}
+              disabled={deletingCategory}
+              className="rounded-xl border border-line bg-surface px-4 py-2.5 text-[11px] font-bold text-ink-soft transition-colors hover:bg-surface-muted disabled:opacity-50"
+            >
+              انصراف
+            </button>
+          </div>
+        </div>
+      </Modal>
+
+      <ToastViewport toasts={toasts} onDismiss={dismiss} />
+
+      {/* نسخهٔ مخصوص پرینت کد QR */}
+      <div className="hidden print:block">
+        <div className="flex flex-col items-center justify-center gap-4 p-10 text-center">
+          <p className="text-2xl font-black">{menu?.restaurant_name}</p>
+          <p className="text-sm">منوی دیجیتال کافه · برای مشاهدهٔ منو اسکن کنید</p>
+          <div className="rounded-2xl border border-slate-300 p-6">
+            <QRCodeSVG
+              value={qrUrl}
+              size={260}
+              bgColor="#ffffff"
+              fgColor="#111827"
+              level="M"
+            />
+          </div>
+          <p className="text-xs text-slate-600" dir="ltr">
+            {qrUrl}
+          </p>
+          <p className="flex items-center gap-1.5 text-xs text-slate-500">
+            <Coffee className="h-4 w-4" />
+            {restaurantInitial(menu?.restaurant_name)} · دستیار هوشمند کافه
+          </p>
+        </div>
+      </div>
     </div>
   );
 }
+

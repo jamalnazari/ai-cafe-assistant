@@ -22,8 +22,10 @@ class RestaurantModel(Base):
         "MenuItemModel",
         back_populates="restaurant",
         cascade="all, delete-orphan",
+        order_by="MenuItemModel.sort_order, MenuItemModel.id",
     )
     categories: Mapped[list["MenuCategoryModel"]] = relationship(
         "MenuCategoryModel",
         cascade="all, delete-orphan",
+        order_by="MenuCategoryModel.sort_order, MenuCategoryModel.id",
     )

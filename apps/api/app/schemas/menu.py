@@ -20,6 +20,8 @@ class MenuItem(BaseModel):
     ingredients: list[str] | None = None
     # None یعنی آلرژن‌ها مشخص نیستند؛ [] یعنی بررسی شده و موردی ثبت نشده.
     allergens: list[str] | None = None
+    # نام‌های جایگزین برای جست‌وجوی هوشمند؛ در پاسخ به مشتری نمایش داده نمی‌شود.
+    aliases: list[str] | None = None
     is_spicy: bool | None = None
     serving_temperature: Literal["hot", "cold", "room_temperature"] | None = None
     price: Price | None = None
@@ -35,6 +37,7 @@ class RestaurantMenu(BaseModel):
 
 class MenuCategoryCreate(BaseModel):
     name: str = Field(min_length=1, max_length=50)
+    sort_order: int = Field(default=0, ge=0)
 
     @field_validator("name")
     @classmethod
@@ -46,16 +49,18 @@ class MenuCategoryCreate(BaseModel):
 
 
 class MenuItemCreate(BaseModel):
-    item_key: str
+    item_key: str = Field(min_length=1, max_length=50)
     name: str
     category: str
     description: str
     price_amount: int  # قیمت به ریال (مثلا 1450000)
     ingredients: list[str] | None = None
     allergens: list[str] | None = None
+    aliases: list[str] | None = None
     is_spicy: bool = False
     serving_temperature: Literal["hot", "cold", "room_temperature"] | None = None
     is_available: bool = True
+    sort_order: int = Field(default=0, ge=0)
 
 
 class MenuItemUpdate(BaseModel):
@@ -67,6 +72,8 @@ class MenuItemUpdate(BaseModel):
     price_amount: int | None = None
     ingredients: list[str] | None = None
     allergens: list[str] | None = None
+    aliases: list[str] | None = None
     is_spicy: bool | None = None
     serving_temperature: Literal["hot", "cold", "room_temperature"] | None = None
     is_available: bool | None = None
+    sort_order: int | None = Field(default=None, ge=0)

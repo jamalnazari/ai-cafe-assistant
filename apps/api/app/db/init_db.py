@@ -50,6 +50,53 @@ async def init_db():
             await conn.execute(
                 text("ALTER TABLE menu_items ADD COLUMN image_filename VARCHAR(255)")
             )
+        if "aliases" not in menu_item_columns:
+            await conn.execute(
+                text("ALTER TABLE menu_items ADD COLUMN aliases JSON")
+            )
+        if "sort_order" not in menu_item_columns:
+            await conn.execute(
+                text(
+                    "ALTER TABLE menu_items ADD COLUMN sort_order INTEGER NOT NULL DEFAULT 0"
+                )
+            )
+
+        category_columns = await conn.run_sync(
+            lambda sync_conn: {
+                column["name"]
+                for column in inspect(sync_conn).get_columns("menu_categories")
+            }
+        )
+        if "sort_order" not in category_columns:
+            await conn.execute(
+                text(
+                    "ALTER TABLE menu_categories ADD COLUMN sort_order INTEGER NOT NULL DEFAULT 0"
+                )
+            )
+
+        # کلید آیتم باید در هر رستوران یکتا باشد تا LLM و API دچار ابهام نشوند.
+        duplicate_keys = (
+            await conn.execute(
+                text(
+                    "SELECT restaurant_id, item_key, COUNT(*) AS duplicate_count "
+                    "FROM menu_items GROUP BY restaurant_id, item_key "
+                    "HAVING duplicate_count > 1 LIMIT 1"
+                )
+            )
+        ).first()
+        if duplicate_keys is None:
+            await conn.execute(
+                text(
+                    "CREATE UNIQUE INDEX IF NOT EXISTS "
+                    "ux_menu_items_restaurant_item_key "
+                    "ON menu_items (restaurant_id, item_key)"
+                )
+            )
+        else:
+            print(
+                "هشدار: کلید آیتم تکراری پیدا شد و ایندکس یکتا ساخته نشد: "
+                f"{duplicate_keys}"
+            )
 
     async with AsyncSessionLocal() as session:
         # ساخت کاربر اولیه صاحب کافه
