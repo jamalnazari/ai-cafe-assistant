@@ -23,6 +23,8 @@ class Settings(BaseSettings):
 
     # Database
     DATABASE_URL: str = "sqlite+aiosqlite:///./cafe.db"
+    # ستون‌های جدید هنگام راه‌اندازی به‌صورت خودکار به دیتابیس اضافه می‌شوند.
+    AUTO_MIGRATE_SCHEMA: bool = True
 
     # Security
     SECRET_KEY: str = DEFAULT_SECRET_KEY

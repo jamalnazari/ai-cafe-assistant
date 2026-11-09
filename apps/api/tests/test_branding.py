@@ -5,10 +5,12 @@ import base64
 
 import pytest
 from fastapi.testclient import TestClient
+from sqlalchemy import inspect, text
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_async_engine
 
 from app.core.config import settings
 from app.core.security import hash_password
+from app.db.init_db import ensure_schema_columns
 from app.db.session import Base, get_db
 from app.models import RestaurantModel, UserModel
 from app.services.branding_image_service import branding_image_service
@@ -253,3 +255,63 @@ def test_branding_upload_for_unknown_restaurant_returns_404(branding_context):
     )
 
     assert response.status_code == 404
+
+
+# --- مهاجرت خودکار دیتابیس‌های قدیمی ---
+
+
+@pytest.mark.asyncio
+async def test_schema_upgrade_adds_branding_columns_to_legacy_database(tmp_path):
+    engine = create_async_engine(f"sqlite+aiosqlite:///{tmp_path / 'legacy.db'}")
+
+    async with engine.begin() as connection:
+        await connection.execute(
+            text(
+                "CREATE TABLE restaurants ("
+                "id INTEGER PRIMARY KEY, slug VARCHAR(50), name VARCHAR(100), "
+                "is_active BOOLEAN, created_at DATETIME)"
+            )
+        )
+        await connection.execute(
+            text(
+                "CREATE TABLE menu_items ("
+                "id INTEGER PRIMARY KEY, restaurant_id INTEGER, "
+                "item_key VARCHAR(50), name VARCHAR(255), category VARCHAR(100), "
+                "description TEXT, price_amount INTEGER, price_currency VARCHAR(3))"
+            )
+        )
+        await connection.execute(
+            text(
+                "CREATE TABLE menu_categories ("
+                "id INTEGER PRIMARY KEY, restaurant_id INTEGER, name VARCHAR(50))"
+            )
+        )
+        await connection.execute(
+            text("INSERT INTO restaurants (slug, name) VALUES ('demo', 'کافه قدیمی')")
+        )
+
+    async with engine.begin() as connection:
+        await ensure_schema_columns(connection)
+
+    async with engine.connect() as connection:
+        restaurant_columns = await connection.run_sync(
+            lambda sync_conn: {
+                column["name"]
+                for column in inspect(sync_conn).get_columns("restaurants")
+            }
+        )
+        menu_columns = await connection.run_sync(
+            lambda sync_conn: {
+                column["name"]
+                for column in inspect(sync_conn).get_columns("menu_items")
+            }
+        )
+        legacy_name = await connection.scalar(
+            text("SELECT name FROM restaurants WHERE slug = 'demo'")
+        )
+
+    assert {"logo_filename", "background_filename"} <= restaurant_columns
+    assert {"image_filename", "aliases", "sort_order"} <= menu_columns
+    assert legacy_name == "کافه قدیمی"
+
+    await engine.dispose()

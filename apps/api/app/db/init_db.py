@@ -68,16 +68,21 @@ async def apply_sample_branding(session: AsyncSession) -> None:
         print("تصاویر نمونهٔ هویت کافه (لوگو و پس‌زمینه) نصب شد.")
 
 
-async def init_db():
-    print("در حال به‌روزرسانی جدول‌ها در SQLite...")
-    async with engine.begin() as conn:
-        await conn.run_sync(Base.metadata.create_all)
-        menu_item_columns = await conn.run_sync(
-            lambda sync_conn: {
-                column["name"]
-                for column in inspect(sync_conn).get_columns("menu_items")
-            }
-        )
+async def ensure_schema_columns(conn) -> None:
+    """
+    ستون‌های اضافه‌شده در نسخه‌های جدید را بدون حذف داده به جدول‌ها اضافه می‌کند.
+    هم init_db و هم راه‌اندازی سرویس از این تابع استفاده می‌کنند تا دیتابیس‌های
+    قدیمی (از جمله دیتابیس لپ‌تاپ کاربر) به‌صورت خودکار به‌روز شوند.
+    """
+
+    def table_columns(sync_conn, table_name: str) -> set[str] | None:
+        inspector = inspect(sync_conn)
+        if not inspector.has_table(table_name):
+            return None
+        return {column["name"] for column in inspector.get_columns(table_name)}
+
+    menu_item_columns = await conn.run_sync(table_columns, "menu_items")
+    if menu_item_columns is not None:
         # دیتابیس‌های قبلی بدون حذف داده به‌روزرسانی می‌شوند.
         if "image_filename" not in menu_item_columns:
             await conn.execute(
@@ -94,25 +99,16 @@ async def init_db():
                 )
             )
 
-        category_columns = await conn.run_sync(
-            lambda sync_conn: {
-                column["name"]
-                for column in inspect(sync_conn).get_columns("menu_categories")
-            }
-        )
-        if "sort_order" not in category_columns:
-            await conn.execute(
-                text(
-                    "ALTER TABLE menu_categories ADD COLUMN sort_order INTEGER NOT NULL DEFAULT 0"
-                )
+    category_columns = await conn.run_sync(table_columns, "menu_categories")
+    if category_columns is not None and "sort_order" not in category_columns:
+        await conn.execute(
+            text(
+                "ALTER TABLE menu_categories ADD COLUMN sort_order INTEGER NOT NULL DEFAULT 0"
             )
-
-        restaurant_columns = await conn.run_sync(
-            lambda sync_conn: {
-                column["name"]
-                for column in inspect(sync_conn).get_columns("restaurants")
-            }
         )
+
+    restaurant_columns = await conn.run_sync(table_columns, "restaurants")
+    if restaurant_columns is not None:
         # هویت بصری کافه (لوگو و تصویر پس‌زمینه)
         if "logo_filename" not in restaurant_columns:
             await conn.execute(
@@ -125,30 +121,39 @@ async def init_db():
                 )
             )
 
-        # کلید آیتم باید در هر رستوران یکتا باشد تا LLM و API دچار ابهام نشوند.
-        duplicate_keys = (
-            await conn.execute(
-                text(
-                    "SELECT restaurant_id, item_key, COUNT(*) AS duplicate_count "
-                    "FROM menu_items GROUP BY restaurant_id, item_key "
-                    "HAVING duplicate_count > 1 LIMIT 1"
-                )
-            )
-        ).first()
-        if duplicate_keys is None:
-            await conn.execute(
-                text(
-                    "CREATE UNIQUE INDEX IF NOT EXISTS "
-                    "ux_menu_items_restaurant_item_key "
-                    "ON menu_items (restaurant_id, item_key)"
-                )
-            )
-        else:
-            print(
-                "هشدار: کلید آیتم تکراری پیدا شد و ایندکس یکتا ساخته نشد: "
-                f"{duplicate_keys}"
-            )
+    if menu_item_columns is None:
+        return
 
+    # کلید آیتم باید در هر رستوران یکتا باشد تا LLM و API دچار ابهام نشوند.
+    duplicate_keys = (
+        await conn.execute(
+            text(
+                "SELECT restaurant_id, item_key, COUNT(*) AS duplicate_count "
+                "FROM menu_items GROUP BY restaurant_id, item_key "
+                "HAVING duplicate_count > 1 LIMIT 1"
+            )
+        )
+    ).first()
+    if duplicate_keys is None:
+        await conn.execute(
+            text(
+                "CREATE UNIQUE INDEX IF NOT EXISTS "
+                "ux_menu_items_restaurant_item_key "
+                "ON menu_items (restaurant_id, item_key)"
+            )
+        )
+    else:
+        print(
+            "هشدار: کلید آیتم تکراری پیدا شد و ایندکس یکتا ساخته نشد: "
+            f"{duplicate_keys}"
+        )
+
+
+async def init_db():
+    print("در حال به‌روزرسانی جدول‌ها در SQLite...")
+    async with engine.begin() as conn:
+        await conn.run_sync(Base.metadata.create_all)
+        await ensure_schema_columns(conn)
     async with AsyncSessionLocal() as session:
         # ساخت کاربر اولیه صاحب کافه
         user_result = await session.execute(
