@@ -120,6 +120,11 @@ async def ensure_schema_columns(conn) -> None:
                     "ALTER TABLE restaurants ADD COLUMN background_filename VARCHAR(255)"
                 )
             )
+        # توضیحات «دربارهٔ مجموعه» برای پاسخ‌های دستیار هوشمند
+        if "about_text" not in restaurant_columns:
+            await conn.execute(
+                text("ALTER TABLE restaurants ADD COLUMN about_text TEXT")
+            )
 
     if menu_item_columns is None:
         return

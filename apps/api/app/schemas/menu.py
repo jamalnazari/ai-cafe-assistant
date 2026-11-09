@@ -1,6 +1,6 @@
 from typing import Literal
 
-from pydantic import BaseModel, Field, field_validator
+from pydantic import BaseModel, Field, field_validator, model_validator
 
 
 class Price(BaseModel):
@@ -34,22 +34,51 @@ class RestaurantMenu(BaseModel):
     # هویت بصری کافه؛ در پنل مالک قابل تغییر است.
     logo_url: str | None = None
     background_url: str | None = None
+    # توضیحات کلی مجموعه که صاحب کافه در پنل وارد می‌کند.
+    restaurant_about: str | None = None
     categories: list[str] = Field(default_factory=list)
     items: list[MenuItem]
 
 
-class RestaurantUpdate(BaseModel):
-    """تغییر اطلاعات پایهٔ کافه توسط صاحب کافه."""
+MAX_ABOUT_LENGTH = 1500
 
-    name: str = Field(min_length=1, max_length=100)
+
+class RestaurantUpdate(BaseModel):
+    """تغییر اطلاعات پایهٔ کافه توسط صاحب کافه.
+
+    هر فیلد اختیاری است؛ فقط فیلدهایی که در بدنه آمده‌اند به‌روزرسانی می‌شوند.
+    برای «دربارهٔ مجموعه» مقدار خالی یعنی پاک‌کردن توضیحات.
+    """
+
+    name: str | None = Field(default=None, max_length=100)
+    about: str | None = Field(default=None, max_length=MAX_ABOUT_LENGTH)
 
     @field_validator("name")
     @classmethod
-    def validate_name(cls, value: str) -> str:
+    def validate_name(cls, value: str | None) -> str | None:
+        if value is None:
+            return None
         name = value.strip()
         if not name:
             raise ValueError("نام کافه نمی‌تواند خالی باشد.")
         return name
+
+    @field_validator("about")
+    @classmethod
+    def validate_about(cls, value: str | None) -> str | None:
+        if value is None:
+            return None
+        # فاصله‌های اضافی و خط‌های خالی تکراری تمیز می‌شوند.
+        lines = [line.strip() for line in value.strip().splitlines()]
+        cleaned = "\n".join(line for line in lines if line)
+        return cleaned or None
+
+    @model_validator(mode="after")
+    def require_at_least_one_field(self) -> "RestaurantUpdate":
+        provided = self.model_fields_set & {"name", "about"}
+        if not provided:
+            raise ValueError("هیچ فیلدی برای به‌روزرسانی ارسال نشده است.")
+        return self
 
 
 class MenuCategoryCreate(BaseModel):

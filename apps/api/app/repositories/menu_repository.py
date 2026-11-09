@@ -93,6 +93,7 @@ class SqlAlchemyMenuRepository:
             background_url=branding_image_service.get_image_url(
                 restaurant.background_filename
             ),
+            restaurant_about=restaurant.about_text,
             categories=category_names,
             items=items,
         )

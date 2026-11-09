@@ -1,5 +1,5 @@
 from datetime import datetime, timezone
-from sqlalchemy import String, Boolean, DateTime
+from sqlalchemy import String, Boolean, DateTime, Text
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from app.db.session import Base
@@ -16,6 +16,8 @@ class RestaurantModel(Base):
     background_filename: Mapped[str | None] = mapped_column(
         String(255), nullable=True
     )
+    # توضیحات کلی مجموعه که صاحب کافه می‌نویسد و دستیار هوشمند از آن استفاده می‌کند
+    about_text: Mapped[str | None] = mapped_column(Text, nullable=True)
     is_active: Mapped[bool] = mapped_column(Boolean, default=True)
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True),

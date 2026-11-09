@@ -255,11 +255,22 @@ async def update_restaurant(
     body: RestaurantUpdate,
     db: AsyncSession = Depends(get_db),
     _current_owner: UserModel = Depends(get_current_owner),
-) -> dict[str, str]:
+) -> dict[str, str | None]:
+    """به‌روزرسانی نام کافه و/یا توضیحات «دربارهٔ مجموعه»."""
     restaurant = await get_restaurant_or_404(db, restaurant_slug)
-    restaurant.name = body.name
+
+    if body.name is not None:
+        restaurant.name = body.name
+    if "about" in body.model_fields_set:
+        # مقدار خالی (None پس از اعتبارسنجی) یعنی پاک‌کردن توضیحات.
+        restaurant.about_text = body.about
+
     await db.commit()
-    return {"message": "نام کافه به‌روزرسانی شد.", "name": restaurant.name}
+    return {
+        "message": "اطلاعات کافه به‌روزرسانی شد.",
+        "name": restaurant.name,
+        "about": restaurant.about_text,
+    }
 
 
 @app.post("/api/v1/restaurants/{restaurant_slug}/logo")

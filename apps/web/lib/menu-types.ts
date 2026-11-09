@@ -22,6 +22,8 @@ export interface RestaurantMenu {
   logo_url?: string | null;
   /** تصویر پس‌زمینهٔ صفحهٔ مشتری. */
   background_url?: string | null;
+  /** توضیحات کلی مجموعه که دستیار هوشمند در پاسخ‌ها در نظر می‌گیرد. */
+  restaurant_about?: string | null;
   categories?: string[];
   items: MenuItem[];
 }
