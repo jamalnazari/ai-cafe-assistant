@@ -227,7 +227,8 @@ npm start
 | `UPLOAD_DIR` | `apps/api/uploads/menu_items` | پوشهٔ تصاویر؛ در سرور بیرون از پروژه بگذارید |
 | `BACKUP_DIR` / `BACKUP_KEEP` | `apps/api/backups` / `14` | مقصد و تعداد نسخه‌های پشتیبان |
 | `AI_REQUEST_TIMEOUT_SECONDS` / `AI_MAX_RETRIES` | `30` / `2` | زمان انتظار و تلاش دوبارهٔ LLM |
-| `LLM_PROVIDER` | `mock` | `mock` یا `openai` (سازگار با OpenAI) |
+| `AI_TEMPERATURE` | `0.2` | دمای مدل؛ پایین بماند تا دستیار از خودش نسازد |
+| `LLM_PROVIDER` | `mock` | `mock` یا هر نام سرویس سازگار با OpenAI (`openai`، `dahl`، `openai-compatible`) |
 | `AI_BASE_URL` | `https://api.openai.com/v1` | آدرس پایهٔ سرویس، تا انتهای `/v1` |
 | `AI_API_KEY` | `mock-key` | کلید سرویس — فقط در بک‌اند |
 | `LLM_MODEL` | `gpt-4o-mini` | شناسهٔ مدل |
@@ -258,11 +259,36 @@ AI_API_KEY=کلید-واقعی-شما
 LLM_MODEL=muse-glimmer-30b:free
 ```
 
+### نمونهٔ Dahl
+
+Dahl (`inference.dahl.global`) دقیقاً همان قالب OpenAI Chat Completions را دارد:
+
+```env
+LLM_PROVIDER=dahl
+AI_BASE_URL=https://inference.dahl.global/v1
+AI_API_KEY=کلید-داشبورد-داهل
+LLM_MODEL=zai-org/GLM-5.3-Flash
+```
+
+مدل‌های معرفی‌شدهٔ همین سرویس که در پروژه قابل استفاده‌اند: `zai-org/GLM-5.3-Flash`،
+`MiniMax M2.7` و `DeepSeek V4` (شناسهٔ دقیق هر مدل را از صفحهٔ Model Routing
+کپی کنید؛ اگر شناسه اشتباه باشد سرویس کد ۴۰۴ می‌دهد).
+
+پس از تنظیم، بدون بالا آمدن کل برنامه اتصال را آزمایش کنید:
+
+```bat
+npm run check:llm
+```
+
+خروجی موفق: آدرس، مدل، کلید ماسک‌شده و پیام «اتصال برقرار است ✔». اگر کلید، مدل یا
+آدرس اشتباه باشد، پیام فارسی دقیق (کد ۴۰۱/۴۰۴/۴۲۹، تایم‌اوت یا خطای شبکه) چاپ می‌شود.
+
 نکته‌ها:
 
 - `AI_BASE_URL` را تا انتهای `/v1` بنویسید؛ مسیر `/chat/completions` خودکار اضافه می‌شود.
 - `LLM_MODEL` باید **دقیقاً** همان شناسهٔ اعلام‌شده توسط سرویس‌دهنده باشد.
 - کلید API فقط در بک‌اند خوانده می‌شود و هرگز به مرورگر نمی‌رود.
+- مدل‌های استدلالی که پاسخ را در `reasoning_content` می‌گذارند هم پشتیبانی می‌شوند.
 - دستیار فقط از دادهٔ منوی همان کافه پاسخ می‌دهد؛ اگر اطلاعاتی در منو نباشد،
   از خودش چیزی نمی‌سازد و مشتری را به پرسیدن از کارکنان راهنمایی می‌کند.
 

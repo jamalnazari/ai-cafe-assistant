@@ -13,6 +13,7 @@
     "db:seed": "node scripts/run-api-command.mjs -m app.db.seed_demo_menu",
     "db:backup": "node scripts/run-api-command.mjs -m app.db.backup_db",
     "owner:password": "node scripts/run-api-command.mjs -m app.db.set_owner_password",
-    "check:prod": "node scripts/run-api-command.mjs -m app.core.check_config"
+    "check:prod": "node scripts/run-api-command.mjs -m app.core.check_config",
+    "check:llm": "node scripts/run-api-command.mjs -m app.core.check_llm"
   }
 }

@@ -67,6 +67,22 @@ AI_API_KEY=<کلید شما>
 LLM_MODEL=<شناسهٔ مدل>
 ```
 
+سرویس Dahl هم همان قالب را دارد؛ کافی است بنویسید:
+
+```env
+LLM_PROVIDER=dahl
+AI_BASE_URL=https://inference.dahl.global/v1
+AI_API_KEY=<کلید داشبورد Dahl>
+LLM_MODEL=zai-org/GLM-5.3-Flash
+```
+
+و اتصال را پیش از استقرار آزمایش کنید (بدون بالا آمدن کل برنامه):
+
+```bash
+cd /opt/ai-cafe-assistant
+npm run check:llm
+```
+
 ساخت `SECRET_KEY`:
 
 ```bash
@@ -242,7 +258,7 @@ cp apps/api/cafe.db ~/cafe.db.backup
 | --- | --- |
 | سرویس API بالا نمی‌آید | `journalctl -u cafe-api -n 80`؛ معمولاً `SECRET_KEY` یا `AI_API_KEY` است |
 | خطای ۵۰۲ از Caddy | پورت ۳۰۰۰/۸۰۰۰ گوش نمی‌دهد؛ `ss -ltnp | grep -E '3000|8000'` |
-| «دستیار موقتاً در دسترس نیست» | کلید/آدرس سرویس هوش مصنوعی یا محدودیت سرویس‌دهنده |
+| «دستیار موقتاً در دسترس نیست» | `npm run check:llm`؛ کلید/آدرس/شناسهٔ مدل یا محدودیت سرویس‌دهنده |
 | خطای ۴۲۹ برای مشتری | `ASK_RATE_LIMIT` را متناسب با ترافیک کافه تنظیم کنید |
 | دیتابیس قفل می‌شود | WAL در کد فعال است؛ مطمئن شوید فایل `cafe.db-wal` قابل نوشتن است |
 | تصاویر بعد از به‌روزرسانی نیستند | `UPLOAD_DIR` باید بیرون از پوشهٔ پروژه و پایدار باشد |
