@@ -19,6 +19,7 @@ from fastapi.responses import JSONResponse
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel, Field
 from sqlalchemy import func, select, text, update
+from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
@@ -30,6 +31,7 @@ from app.models.menu import MenuItemModel
 from app.models.menu_category import MenuCategoryModel
 from app.models.user import UserModel
 from app.core.config import DEFAULT_OWNER_PASSWORD, settings
+from app.core.identity import is_placeholder_email, placeholder_email
 from app.core.security import hash_password, verify_password
 from app.core.auth import (
     assert_can_manage_restaurant,
@@ -233,8 +235,12 @@ async def build_user_response(
 
     return OwnerResponse(
         username=user.username,
-        # نشانی جای‌نگهدار مدیر به کاربر نمایش داده نمی‌شود.
-        email=None if user.role == "admin" else user.email,
+        # نشانی جای‌نگهدار (مدیر یا کاربر ساخته‌شده در پنل) نمایش داده نمی‌شود.
+        email=(
+            None
+            if user.role == "admin" or is_placeholder_email(user.email)
+            else user.email
+        ),
         role=user.role,
         restaurant_slug=restaurant.slug if restaurant else None,
         restaurant_name=restaurant.name if restaurant else None,
@@ -940,7 +946,7 @@ async def admin_create_restaurant(
 
     owner = UserModel(
         username=body.owner_username,
-        email=None,
+        email=placeholder_email(body.owner_username),
         password_hash=hash_password(body.owner_password),
         role="owner",
         restaurant_id=restaurant.id,
@@ -948,7 +954,15 @@ async def admin_create_restaurant(
         is_active=True,
     )
     db.add(owner)
-    await db.commit()
+    try:
+        await db.commit()
+    except IntegrityError as exc:
+        await db.rollback()
+        logger.warning("ساخت کافه ناموفق بود: %s", exc)
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail="این نام کاربری یا نشانی کافه قبلاً ثبت شده است؛ مقدار دیگری انتخاب کنید.",
+        ) from exc
     await db.refresh(restaurant)
 
     return await to_admin_out(db, restaurant)
@@ -995,6 +1009,8 @@ async def admin_update_restaurant(
             db, body.owner_username, allow_user_id=owner.id
         )
         owner.username = body.owner_username
+        if is_placeholder_email(owner.email):
+            owner.email = placeholder_email(body.owner_username)
 
     if body.owner_password is not None:
         if owner is None:
@@ -1006,7 +1022,15 @@ async def admin_update_restaurant(
         # با تغییر رمز، نشست‌های قبلی باطل می‌شوند.
         await revoke_user_sessions(db, owner.id)
 
-    await db.commit()
+    try:
+        await db.commit()
+    except IntegrityError as exc:
+        await db.rollback()
+        logger.warning("ویرایش کافه ناموفق بود: %s", exc)
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail="این نام کاربری یا نشانی کافه قبلاً ثبت شده است؛ مقدار دیگری انتخاب کنید.",
+        ) from exc
     await db.refresh(restaurant)
     return await to_admin_out(db, restaurant)
 

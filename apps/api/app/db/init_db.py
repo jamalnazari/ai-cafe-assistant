@@ -8,6 +8,7 @@ from app.models.menu_category import MenuCategoryModel
 from app.models.user import UserModel
 from app.models.auth_session import AuthSessionModel  # noqa: F401 - ثبت مدل در metadata
 from app.core.config import DEFAULT_ADMIN_USERNAME, settings
+from app.core.identity import placeholder_email
 from app.core.security import hash_password
 from app.services.branding_image_service import (
     SAMPLE_BACKGROUND_FILE,
@@ -269,7 +270,7 @@ async def ensure_admin_user(session: AsyncSession) -> None:
                 username=username,
                 # در دیتابیس‌های قدیمی ستون email اجباری است؛ این نشانی
                 # فقط جای‌نگهدار است و به کاربر نمایش داده نمی‌شود.
-                email=f"{username}@admin.cafe.local",
+                email=placeholder_email(username),
                 password_hash=hash_password(settings.ADMIN_PASSWORD),
                 role="admin",
                 is_owner=True,
