@@ -25,3 +25,15 @@ Thumbs.db
 # Database backups
 backups/
 apps/api/backups/
+
+# Test artifacts
+.pytest-tmp-env/
+pytest-of-*/
+
+# Local SQLite databases
+*.db
+*.db-shm
+*.db-wal
+
+# Temporary files
+staged.txt
