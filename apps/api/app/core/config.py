@@ -10,6 +10,9 @@ API_DIR = Path(__file__).resolve().parents[2]
 
 DEFAULT_SECRET_KEY = "dev-secret-key-change-in-production"
 DEFAULT_OWNER_PASSWORD = "123456"
+# حساب مدیر کل سامانه (مدیریت کافه‌ها و کاربران)
+DEFAULT_ADMIN_USERNAME = "jamal"
+DEFAULT_ADMIN_PASSWORD = "Jamal@1381"
 
 logger = logging.getLogger("cafe.config")
 
@@ -28,6 +31,9 @@ class Settings(BaseSettings):
 
     # Security
     SECRET_KEY: str = DEFAULT_SECRET_KEY
+    # حساب مدیر کل؛ در اولین اجرا ساخته می‌شود
+    ADMIN_USERNAME: str = DEFAULT_ADMIN_USERNAME
+    ADMIN_PASSWORD: str = DEFAULT_ADMIN_PASSWORD
     SESSION_COOKIE_NAME: str = "cafe_owner_session"
     SESSION_TTL_SECONDS: int = 60 * 60 * 24 * 7
     # اگر مقدار داده نشود، در production به‌صورت خودکار True می‌شود.
@@ -123,6 +129,12 @@ class Settings(BaseSettings):
                 "LLM_PROVIDER نامعتبر است: "
                 f"{self.LLM_PROVIDER!r} "
                 "(مقادیر مجاز: mock, openai, openai-compatible, dahl)"
+            )
+
+        if self.ADMIN_PASSWORD == DEFAULT_ADMIN_PASSWORD:
+            logger.warning(
+                "رمز حساب مدیر کل هنوز رمز پیش‌فرض است؛ متغیر ADMIN_PASSWORD را "
+                "در .env تغییر دهید."
             )
 
         if self.LLM_PROVIDER != "mock" and self.AI_API_KEY in {"", "mock-key"}:

@@ -83,6 +83,9 @@ cd /opt/ai-cafe-assistant
 npm run check:llm
 ```
 
+> در production حتماً `ADMIN_PASSWORD` را از مقدار پیش‌فرض تغییر دهید؛ حساب مدیر
+> (`jamal`) به پنل `/admin` و مدیریت همهٔ کافه‌ها دسترسی دارد.
+
 ساخت `SECRET_KEY`:
 
 ```bash

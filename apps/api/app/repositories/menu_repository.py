@@ -34,12 +34,12 @@ class SqlAlchemyMenuRepository:
             select(RestaurantModel)
             .where(
                 RestaurantModel.slug == restaurant_slug,
-                RestaurantModel.is_active == True,
+                RestaurantModel.is_active.is_(True),
             )
             .options(
-            selectinload(RestaurantModel.items),
-            selectinload(RestaurantModel.categories),
-        )
+                selectinload(RestaurantModel.items),
+                selectinload(RestaurantModel.categories),
+            )
         )
         result = await self.session.execute(stmt)
         restaurant = result.scalar_one_or_none()
@@ -89,6 +89,7 @@ class SqlAlchemyMenuRepository:
         return RestaurantMenu(
             restaurant_slug=restaurant.slug,
             restaurant_name=restaurant.name,
+            restaurant_label=restaurant.label_word or "کافه",
             logo_url=branding_image_service.get_image_url(restaurant.logo_filename),
             background_url=branding_image_service.get_image_url(
                 restaurant.background_filename

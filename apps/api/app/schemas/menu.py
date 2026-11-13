@@ -2,6 +2,8 @@ from typing import Literal
 
 from pydantic import BaseModel, Field, field_validator, model_validator
 
+from app.core.sanitize import clean_text
+
 
 class Price(BaseModel):
     amount: int = Field(ge=0, description="قیمت به واحد پایهٔ ارز")
@@ -31,6 +33,8 @@ class MenuItem(BaseModel):
 class RestaurantMenu(BaseModel):
     restaurant_slug: str
     restaurant_name: str
+    # واژهٔ نمایشی («کافه»، «رستوران» و …) که صاحب کافه انتخاب می‌کند.
+    restaurant_label: str = "کافه"
     # هویت بصری کافه؛ در پنل مالک قابل تغییر است.
     logo_url: str | None = None
     background_url: str | None = None
@@ -58,7 +62,7 @@ class RestaurantUpdate(BaseModel):
     def validate_name(cls, value: str | None) -> str | None:
         if value is None:
             return None
-        name = value.strip()
+        name = clean_text(value)
         if not name:
             raise ValueError("نام کافه نمی‌تواند خالی باشد.")
         return name
@@ -69,7 +73,9 @@ class RestaurantUpdate(BaseModel):
         if value is None:
             return None
         # فاصله‌های اضافی و خط‌های خالی تکراری تمیز می‌شوند.
-        lines = [line.strip() for line in value.strip().splitlines()]
+        lines = [
+            clean_text(line) for line in value.strip().splitlines()
+        ]
         cleaned = "\n".join(line for line in lines if line)
         return cleaned or None
 

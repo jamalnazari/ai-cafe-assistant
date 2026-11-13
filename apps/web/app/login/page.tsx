@@ -11,10 +11,10 @@ import {
   EyeOff,
   LoaderCircle,
   Lock,
-  Mail,
   QrCode,
   ShieldCheck,
   Sparkles,
+  UserRound,
 } from "lucide-react";
 
 import ThemeSwitcher from "@/components/theme-switcher";
@@ -39,7 +39,7 @@ const highlights = [
 
 export default function LoginPage() {
   const router = useRouter();
-  const [email, setEmail] = useState("");
+  const [username, setUsername] = useState("");
   const [password, setPassword] = useState("");
   const [showPassword, setShowPassword] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -57,7 +57,7 @@ export default function LoginPage() {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         credentials: "same-origin",
-        body: JSON.stringify({ email: email.trim(), password }),
+        body: JSON.stringify({ username: username.trim(), password }),
       });
 
       if (!response.ok) {
@@ -153,25 +153,27 @@ export default function LoginPage() {
             <form onSubmit={handleLogin} className="mt-6 space-y-4">
               <div className="space-y-1.5">
                 <label
-                  htmlFor="email"
+                  htmlFor="username"
                   className="text-[11px] font-bold text-ink-soft"
                 >
-                  ایمیل مدیر
+                  نام کاربری
                 </label>
                 <div className="relative">
                   <input
-                    id="email"
-                    type="email"
-                    value={email}
-                    onChange={(event) => setEmail(event.target.value)}
-                    placeholder="owner@cafe.com"
+                    id="username"
+                    type="text"
+                    value={username}
+                    onChange={(event) => setUsername(event.target.value)}
+                    placeholder="malik@cafe یا jamal"
                     autoComplete="username"
-                    maxLength={255}
+                    autoCapitalize="none"
+                    spellCheck={false}
+                    maxLength={50}
                     required
                     dir="ltr"
                     className="w-full rounded-2xl border border-line bg-surface-muted px-4 py-3 pl-10 text-left text-xs text-ink outline-none transition-all placeholder:text-ink-faint focus:border-primary focus:ring-4 focus:ring-primary/15"
                   />
-                  <Mail
+                  <UserRound
                     className="absolute left-3 top-3.5 h-4 w-4 text-ink-faint"
                     aria-hidden="true"
                   />
