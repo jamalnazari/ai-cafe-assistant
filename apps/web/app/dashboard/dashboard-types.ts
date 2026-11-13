@@ -11,6 +11,7 @@ export interface MenuItem {
 export interface RestaurantMenu {
   restaurant_slug: string;
   restaurant_name: string;
+  restaurant_label?: string;
   logo_url?: string | null;
   background_url?: string | null;
   restaurant_about?: string | null;

@@ -37,6 +37,7 @@ class AssistantService:
         return {
             "restaurant": {
                 "name": menu.restaurant_name,
+                "label": menu.restaurant_label,
                 "slug": menu.restaurant_slug,
                 # توضیحات کلی مجموعه که صاحب کافه وارد کرده است؛ null یعنی ثبت نشده.
                 "about": menu.restaurant_about,
@@ -59,8 +60,9 @@ class AssistantService:
             indent=2,
         )
 
+        display_name = f"{menu.restaurant_label} {menu.restaurant_name}".strip()
         return (
-            f"تو دستیار متنی منوی کافه «{menu.restaurant_name}» هستی.\n"
+            f"تو دستیار متنی «{display_name}» هستی.\n"
             "وظیفه‌ات پاسخ به پرسش‌های مشتری دربارهٔ منو، به زبان فارسی، "
             "محترمانه، دقیق و کوتاه است.\n\n"
             "قوانین بسیار مهم:\n"

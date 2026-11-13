@@ -33,15 +33,18 @@ def branding_context(tmp_path, monkeypatch):
         async with engine.begin() as connection:
             await connection.run_sync(Base.metadata.create_all)
         async with session_factory() as session:
-            session.add_all(
-                [
-                    UserModel(
-                        email="owner@cafe.com",
-                        password_hash=hash_password("secret-pass"),
-                        is_owner=True,
-                    ),
-                    RestaurantModel(slug="demo", name="کافهٔ آزمایشی"),
-                ]
+            demo_restaurant = RestaurantModel(slug="demo", name="کافهٔ آزمایشی")
+            session.add(demo_restaurant)
+            await session.flush()
+            session.add(
+                UserModel(
+                    username="owner",
+                    email="owner@cafe.com",
+                    password_hash=hash_password("secret-pass"),
+                    role="owner",
+                    restaurant_id=demo_restaurant.id,
+                    is_owner=True,
+                )
             )
             await session.commit()
 

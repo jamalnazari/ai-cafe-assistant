@@ -11,6 +11,10 @@ class RestaurantModel(Base):
     id: Mapped[int] = mapped_column(primary_key=True, autoincrement=True)
     slug: Mapped[str] = mapped_column(String(50), unique=True, index=True, nullable=False)
     name: Mapped[str] = mapped_column(String(100), nullable=False)
+    # واژهٔ نمایشی قبل از نام: «کافه»، «رستوران»، «کافه‌رستوران» و …
+    label_word: Mapped[str] = mapped_column(
+        String(30), default="کافه", nullable=False
+    )
     # تصاویر هویت کافه که صاحب کافه از پنل بارگذاری می‌کند
     logo_filename: Mapped[str | None] = mapped_column(String(255), nullable=True)
     background_filename: Mapped[str | None] = mapped_column(

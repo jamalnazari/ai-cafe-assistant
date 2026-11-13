@@ -31,7 +31,12 @@ export default function GuestMenuPage({ params }: PageProps) {
         `/api/v1/restaurants/${restaurantSlug}/menu`,
       );
       if (!response.ok) {
-        throw new Error("کافهٔ مورد نظر یافت نشد.");
+        // 404 یعنی کافه وجود ندارد یا مدیر آن را غیرفعال کرده است؛
+        // در این حالت کد QR قبلی دیگر معتبر نیست.
+        throw new Error(
+          "این منو در دسترس نیست؛ ممکن است کافه غیرفعال شده باشد. " +
+            "لطفاً از پرسنل کافه کمک بگیرید.",
+        );
       }
       const data = (await response.json()) as RestaurantMenu;
       setMenu(data);
@@ -53,11 +58,15 @@ export default function GuestMenuPage({ params }: PageProps) {
     });
   }, [params, fetchMenu]);
 
+  const displayName = menu
+    ? `${menu.restaurant_label ?? "کافه"} ${menu.restaurant_name}`.trim()
+    : "";
+
   useEffect(() => {
-    if (menu?.restaurant_name) {
-      document.title = `${menu.restaurant_name} | دستیار منو`;
+    if (displayName) {
+      document.title = `${displayName} | دستیار منو`;
     }
-  }, [menu?.restaurant_name]);
+  }, [displayName]);
 
   useEffect(() => {
     window.scrollTo(0, 0);
@@ -93,7 +102,7 @@ export default function GuestMenuPage({ params }: PageProps) {
           <span className="mx-auto grid h-14 w-14 place-items-center rounded-2xl bg-danger-soft text-danger">
             <CircleAlert className="h-7 w-7" aria-hidden="true" />
           </span>
-          <h1 className="mt-4 text-lg font-black">منو پیدا نشد</h1>
+          <h1 className="mt-4 text-lg font-black">منو در دسترس نیست</h1>
           <p className="mt-2 text-xs leading-6 text-ink-soft">{error}</p>
           <button
             type="button"
@@ -129,7 +138,7 @@ export default function GuestMenuPage({ params }: PageProps) {
 
   return (
     <MenuChat
-      restaurantName={menu.restaurant_name}
+      restaurantName={displayName}
       logoUrl={menu.logo_url ?? null}
       backgroundUrl={menu.background_url ?? null}
       itemCount={menu.items.length}

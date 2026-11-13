@@ -46,6 +46,8 @@ const ALLOWED_IMAGE_TYPES = ["image/jpeg", "image/png", "image/webp"];
 
 type DashboardClientProps = {
   ownerEmail: string;
+  ownerUsername: string;
+  restaurantSlug: string;
   qrUrl: string;
   initialMenu: RestaurantMenu | null;
 };
@@ -92,6 +94,8 @@ function StatCard({
 
 export default function DashboardClient({
   ownerEmail,
+  ownerUsername,
+  restaurantSlug,
   qrUrl,
   initialMenu,
 }: DashboardClientProps) {
@@ -159,7 +163,6 @@ export default function DashboardClient({
   const [mobilePanel, setMobilePanel] = useState<"menu" | "settings">("menu");
 
   const items = useMemo(() => menu?.items ?? [], [menu]);
-  const restaurantSlug = menu?.restaurant_slug ?? "demo";
 
   const categoryNames = useMemo(() => {
     if (!menu) return [];
@@ -201,7 +204,7 @@ export default function DashboardClient({
 
   const fetchMenu = useCallback(async () => {
     try {
-      const response = await fetch(`/api/v1/restaurants/demo/menu`, {
+      const response = await fetch(`/api/v1/restaurants/${restaurantSlug}/menu`, {
         cache: "no-store",
         credentials: "same-origin",
       });
@@ -217,7 +220,7 @@ export default function DashboardClient({
         error instanceof Error ? error.message : "دریافت منو ناموفق بود.",
       );
     }
-  }, []);
+  }, [restaurantSlug]);
 
   const handleExpiredSession = useCallback(
     (response: Response) => {
@@ -827,14 +830,16 @@ export default function DashboardClient({
             </span>
             <div className="min-w-0">
               <h1 className="max-w-[9.5rem] truncate text-[13px] font-black sm:max-w-none sm:text-sm">
-                {menu?.restaurant_name ?? "پنل مدیریت کافه"}
+                {menu
+                  ? `${menu.restaurant_label ?? "کافه"} ${menu.restaurant_name}`
+                  : "پنل مدیریت"}
               </h1>
               <p
                 className="hidden truncate text-[10px] text-ink-faint sm:block"
                 dir="ltr"
-                title={ownerEmail}
+                title={ownerUsername || ownerEmail}
               >
-                {ownerEmail}
+                {ownerUsername || ownerEmail}
               </p>
             </div>
           </div>
