@@ -25,7 +25,10 @@ class OpenAICompatibleSTTProvider:
         self.model = model
 
     async def transcribe(self, audio_bytes: bytes, filename: str) -> str:
-        async with httpx.AsyncClient(timeout=30.0) as client:
+        # تایم‌اوت از تنظیمات خوانده می‌شود تا با LLM هماهنگ بماند.
+        async with httpx.AsyncClient(
+            timeout=settings.AI_REQUEST_TIMEOUT_SECONDS
+        ) as client:
             headers = {"Authorization": f"Bearer {self.api_key}"}
             files = {"file": (filename, audio_bytes, "audio/webm")}
             data = {"model": self.model, "language": "fa"}

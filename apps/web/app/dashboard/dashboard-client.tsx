@@ -32,6 +32,8 @@ import MenuCategoryNav from "@/components/menu-category-nav";
 import ThemeSwitcher from "@/components/theme-switcher";
 import Modal from "@/components/ui/modal";
 import { ToastViewport, useToasts } from "@/components/ui/toast";
+// خوانندهٔ خطاهای API با ترجمهٔ فارسی پیام‌های اعتبارسنجی.
+import { readApiError as getResponseError } from "@/lib/api-errors";
 import { cn } from "@/lib/cn";
 import {
   formatItemPrice,
@@ -53,13 +55,6 @@ type DashboardClientProps = {
 };
 
 type CategoryDeleteMode = "move" | "delete_items";
-
-async function getResponseError(response: Response, fallback: string) {
-  const data = (await response.json().catch(() => null)) as {
-    detail?: string;
-  } | null;
-  return data?.detail ?? fallback;
-}
 
 function validateImageFile(file: File) {
   if (!ALLOWED_IMAGE_TYPES.includes(file.type)) {

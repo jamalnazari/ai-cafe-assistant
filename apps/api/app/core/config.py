@@ -56,6 +56,9 @@ class Settings(BaseSettings):
     # تصاویر هویت کافه (لوگو و پس‌زمینهٔ صفحهٔ مشتری)
     BRANDING_UPLOAD_DIR: Path = API_DIR / "uploads" / "branding"
     UPLOAD_MAX_BYTES: int = 5 * 1024 * 1024
+    # سقف حجم فایل صوتیِ پرسش مشتری؛ جلوگیری از پر شدن حافظهٔ سرویس با
+    # فایل‌های بی‌نهایت بزرگ (مسیر صوتی بدون سقف، آماج DoS است).
+    MAX_AUDIO_UPLOAD_BYTES: int = 25 * 1024 * 1024
 
     # پشتیبان‌گیری از دیتابیس
     BACKUP_DIR: Path = API_DIR / "backups"

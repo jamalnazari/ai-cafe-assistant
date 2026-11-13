@@ -19,6 +19,7 @@ from fastapi.responses import JSONResponse
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel, Field
 from sqlalchemy import func, select, text, update
+from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
@@ -30,6 +31,7 @@ from app.models.menu import MenuItemModel
 from app.models.menu_category import MenuCategoryModel
 from app.models.user import UserModel
 from app.core.config import DEFAULT_OWNER_PASSWORD, settings
+from app.core.identity import is_placeholder_email, placeholder_email
 from app.core.security import hash_password, verify_password
 from app.core.auth import (
     assert_can_manage_restaurant,
@@ -233,8 +235,12 @@ async def build_user_response(
 
     return OwnerResponse(
         username=user.username,
-        # نشانی جای‌نگهدار مدیر به کاربر نمایش داده نمی‌شود.
-        email=None if user.role == "admin" else user.email,
+        # نشانی جای‌نگهدار (مدیر یا کاربر ساخته‌شده در پنل) نمایش داده نمی‌شود.
+        email=(
+            None
+            if user.role == "admin" or is_placeholder_email(user.email)
+            else user.email
+        ),
         role=user.role,
         restaurant_slug=restaurant.slug if restaurant else None,
         restaurant_name=restaurant.name if restaurant else None,
@@ -777,13 +783,30 @@ async def ask_voice_question(
     if menu is None:
         raise HTTPException(status_code=404, detail="کافه یافت نشد.")
 
-    audio_bytes = await file.read()
+    # خواندن با سقف حجم: جلوگیری از پر شدن حافظه با فایل صوتی بی‌نهایت بزرگ.
+    audio_bytes = await file.read(settings.MAX_AUDIO_UPLOAD_BYTES + 1)
+    if not audio_bytes:
+        raise HTTPException(status_code=400, detail="فایل صوتی خالی است.")
+    if len(audio_bytes) > settings.MAX_AUDIO_UPLOAD_BYTES:
+        raise HTTPException(
+            status_code=status.HTTP_413_CONTENT_TOO_LARGE,
+            detail="حجم فایل صوتی نباید بیشتر از ۲۵ مگابایت باشد.",
+        )
+
     try:
         transcript, answer = await assistant_service.answer_voice_question(
             menu, audio_bytes, file.filename or "audio.webm"
         )
+    except HTTPException:
+        raise
     except LLMUnavailableError as exc:
         logger.warning("دستیار نتوانست پاسخ صوتی تولید کند: %s", exc)
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail="دستیار هوشمند موقتاً در دسترس نیست؛ لطفاً چند لحظه بعد دوباره بپرسید.",
+        ) from exc
+    except Exception as exc:  # noqa: BLE001 - هر خطای تبدیل صوت (STT) هم ۵۰۳ می‌شود
+        logger.warning("تبدیل صوت به متن ناموفق بود: %s", exc)
         raise HTTPException(
             status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
             detail="دستیار هوشمند موقتاً در دسترس نیست؛ لطفاً چند لحظه بعد دوباره بپرسید.",
@@ -812,7 +835,8 @@ def slugify_value(value: str) -> str:
 async def unique_restaurant_slug(
     db: AsyncSession, base: str, exclude_id: int | None = None
 ) -> str:
-    candidate = base or "cafe"
+    base = (base or "cafe")[:40] or "cafe"
+    candidate = base
     index = 1
     while True:
         existing = await db.scalar(
@@ -820,8 +844,17 @@ async def unique_restaurant_slug(
         )
         if existing is None or existing.id == exclude_id:
             return candidate
+        # سقف تلاش‌ها تا در بدترین حالت هم درخواستِ ساخت کافه معلق نشود.
+        if index > 200:
+            raise HTTPException(
+                status_code=409,
+                detail="ساخت نشانی یکتا ممکن نشد؛ نام دیگری برای کافه انتخاب کنید.",
+            )
+        suffix = f"-{index}"
+        # برای پسوند جا رزرو می‌شود؛ وگرنه برش ۴۰ نویسه‌ای پسوند را حذف می‌کرد،
+        # نامزد تکراری همیشه رد می‌شد و حلقه بی‌پایان می‌شد.
+        candidate = f"{base[: 40 - len(suffix)]}{suffix}"
         index += 1
-        candidate = f"{base}-{index}"[:40]
 
 
 async def owner_of_restaurant(
@@ -940,7 +973,7 @@ async def admin_create_restaurant(
 
     owner = UserModel(
         username=body.owner_username,
-        email=None,
+        email=placeholder_email(body.owner_username),
         password_hash=hash_password(body.owner_password),
         role="owner",
         restaurant_id=restaurant.id,
@@ -948,7 +981,32 @@ async def admin_create_restaurant(
         is_active=True,
     )
     db.add(owner)
-    await db.commit()
+    try:
+        await db.commit()
+
+    except IntegrityError as exc:
+        await db.rollback()
+        logger.warning("ساخت کافه ناموفق بود: %s", exc)
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail="این نام کاربری یا نشانی کافه قبلاً ثبت شده است؛ مقدار دیگری انتخاب کنید.",
+        ) from exc
+
+    except IntegrityError:
+        # تداخل محدودیت دیتابیس (مثلاً نام کاربری تکراری در لحظهٔ آخر) با
+        # پیام فارسی مشخص گزارش می‌شود، نه خطای عمومی ۵۰۰.
+        await db.rollback()
+        logger.warning(
+            "ثبت کافه با خطای محدودیت دیتابیس ناموفق بود", exc_info=True
+        )
+        raise HTTPException(
+            status_code=409,
+            detail=(
+                "ثبت کافه ممکن نشد؛ نام کاربری یا نشانی تکراری است یا یکی از "
+                "مقادیر فرم با محدودیت‌های ثبت هم‌خوان نیست."
+            ),
+        )
+
     await db.refresh(restaurant)
 
     return await to_admin_out(db, restaurant)
@@ -995,6 +1053,8 @@ async def admin_update_restaurant(
             db, body.owner_username, allow_user_id=owner.id
         )
         owner.username = body.owner_username
+        if is_placeholder_email(owner.email):
+            owner.email = placeholder_email(body.owner_username)
 
     if body.owner_password is not None:
         if owner is None:
@@ -1006,7 +1066,15 @@ async def admin_update_restaurant(
         # با تغییر رمز، نشست‌های قبلی باطل می‌شوند.
         await revoke_user_sessions(db, owner.id)
 
-    await db.commit()
+    try:
+        await db.commit()
+    except IntegrityError as exc:
+        await db.rollback()
+        logger.warning("ویرایش کافه ناموفق بود: %s", exc)
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail="این نام کاربری یا نشانی کافه قبلاً ثبت شده است؛ مقدار دیگری انتخاب کنید.",
+        ) from exc
     await db.refresh(restaurant)
     return await to_admin_out(db, restaurant)
 

@@ -27,6 +27,8 @@ import {
 import Modal from "@/components/ui/modal";
 import ThemeSwitcher from "@/components/theme-switcher";
 import { ToastViewport, useToasts } from "@/components/ui/toast";
+// خوانندهٔ خطاهای API با ترجمهٔ فارسی پیام‌های اعتبارسنجی.
+import { readApiError as getError } from "@/lib/api-errors";
 import { cn } from "@/lib/cn";
 import { formatNumber } from "@/lib/format";
 
@@ -56,6 +58,16 @@ const EMPTY_FORM: CafeForm = {
   owner_password: "",
 };
 
+const USERNAME_PATTERN = /^[a-z0-9][a-z0-9_.-]{2,31}$/;
+
+function validateOwnerUsername(value: string): string | null {
+  if (!value.trim()) return "نام کاربری صاحب کافه را وارد کنید.";
+  if (!USERNAME_PATTERN.test(value.trim())) {
+    return "نام کاربری باید ۳ تا ۳۲ نویسه و فقط شامل حروف کوچک انگلیسی، عدد، نقطه، خط تیره یا زیرخط باشد و با حرف یا عدد شروع شود.";
+  }
+  return null;
+}
+
 async function getError(response: Response, fallback: string) {
   const data = (await response.json().catch(() => null)) as {
     detail?: string | { msg?: string }[];
@@ -66,6 +78,8 @@ async function getError(response: Response, fallback: string) {
   }
   return fallback;
 }
+
+
 
 export default function AdminClient({
   initialRestaurants,
@@ -144,6 +158,15 @@ export default function AdminClient({
   const submitCreate = async (event: React.FormEvent) => {
     event.preventDefault();
     if (saving) return;
+    const usernameError = validateOwnerUsername(form.owner_username);
+    if (usernameError) {
+      setFormError(usernameError);
+      return;
+    }
+    if (form.owner_password.length < 8) {
+      setFormError("رمز عبور صاحب کافه باید حداقل ۸ نویسه باشد.");
+      return;
+    }
     setSaving(true);
     setFormError(null);
     try {
@@ -177,6 +200,17 @@ export default function AdminClient({
   const submitEdit = async (event: React.FormEvent) => {
     event.preventDefault();
     if (!editing || saving) return;
+    const usernameError = form.owner_username
+      ? validateOwnerUsername(form.owner_username)
+      : null;
+    if (usernameError) {
+      setFormError(usernameError);
+      return;
+    }
+    if (form.owner_password && form.owner_password.length < 8) {
+      setFormError("رمز عبور جدید باید حداقل ۸ نویسه باشد.");
+      return;
+    }
     setSaving(true);
     setFormError(null);
     try {
@@ -380,11 +414,14 @@ export default function AdminClient({
             dir="ltr"
             maxLength={32}
             required
-            pattern="[a-z0-9][a-z0-9_.-]{2,31}"
+            pattern="[a-z0-9][a-z0-9_.\-]{2,31}"
             title="حروف کوچک انگلیسی، عدد، نقطه، خط تیره یا زیرخط"
             placeholder="teras_owner"
             className="w-full rounded-xl border border-line bg-surface-muted px-3 py-2.5 text-left text-[11px] text-ink outline-none placeholder:text-ink-faint focus:border-primary focus:ring-4 focus:ring-primary/15"
           />
+          <p className="text-[10px] text-ink-faint">
+            ۳ تا ۳۲ نویسه؛ حروف کوچک انگلیسی، عدد، نقطه، خط تیره یا زیرخط.
+          </p>
         </div>
 
         <div className="space-y-1.5">

@@ -8,6 +8,7 @@ from app.models.menu_category import MenuCategoryModel
 from app.models.user import UserModel
 from app.models.auth_session import AuthSessionModel  # noqa: F401 - ثبت مدل در metadata
 from app.core.config import DEFAULT_ADMIN_USERNAME, settings
+from app.core.identity import placeholder_email
 from app.core.security import hash_password
 from app.services.branding_image_service import (
     SAMPLE_BACKGROUND_FILE,
@@ -120,6 +121,97 @@ async def backfill_usernames(conn) -> None:
         )
 
 
+def table_column_names(sync_conn, table_name: str) -> set[str] | None:
+    inspector = inspect(sync_conn)
+    if not inspector.has_table(table_name):
+        return None
+    return {column["name"] for column in inspector.get_columns(table_name)}
+
+
+def table_column_details(sync_conn, table_name: str) -> list[dict] | None:
+    inspector = inspect(sync_conn)
+    if not inspector.has_table(table_name):
+        return None
+    return inspector.get_columns(table_name)
+
+
+async def rebuild_users_table_without_required_email(conn) -> None:
+    """دیتابیس‌های نسخه‌های اول ستون email را NOT NULL ساخته بودند.
+
+    ساخت صاحب کافهٔ بدون ایمیل روی چنین دیتابیس‌هایی با خطای «NOT NULL
+    constraint failed: users.email» به خطای ۵۰۰ می‌رسید. جدول users با همان
+    ساختار فعلی مدل بازسازی می‌شود تا email و سایر ستون‌ها nullable شوند؛
+    همهٔ ردیف‌ها کپی می‌شوند و اگر هر مرحله‌ای خطا بدهد، کل تراکنش برمی‌گردد
+    و جدول قدیمی دست‌نخورده می‌ماند.
+    """
+    old_columns = await conn.run_sync(table_column_details, "users")
+    if old_columns is None:
+        return
+    old_names = {column["name"] for column in old_columns}
+
+    model_columns = [
+        "id",
+        "username",
+        "email",
+        "password_hash",
+        "role",
+        "restaurant_id",
+        "is_owner",
+        "is_active",
+        "created_at",
+    ]
+    shared = [name for name in model_columns if name in old_names]
+
+    def select_expr(name: str) -> str:
+        # مقادیر خالی ستون‌های قدیمی با پیش‌فرضِ منطقی پر می‌شوند تا کپی
+        # به محدودیت NOT NULL ستون‌های جدید برخورد نکند.
+        if name == "role":
+            return "COALESCE(role, 'owner')"
+        if name in {"is_owner", "is_active"}:
+            return f"COALESCE({name}, 1)"
+        return name
+
+    insert_list = ", ".join(shared)
+    select_list = ", ".join(select_expr(name) for name in shared)
+
+    # تا پایان تراکنش بررسی کلیدهای خارجی به تعویق می‌افتد تا حذف جدول والد
+    # (users) با وجود نشست‌های وصل، خطا ندهد؛ شناسه‌ها عوض نمی‌شوند.
+    await conn.execute(text("PRAGMA defer_foreign_keys = ON"))
+    await conn.execute(
+        text(
+            "CREATE TABLE users_new ("
+            "id INTEGER NOT NULL PRIMARY KEY AUTOINCREMENT, "
+            "username VARCHAR(50), "
+            "email VARCHAR(255), "
+            "password_hash VARCHAR(255) NOT NULL, "
+            "role VARCHAR(20) NOT NULL DEFAULT 'owner', "
+            "restaurant_id INTEGER REFERENCES restaurants (id) ON DELETE SET NULL, "
+            "is_owner BOOLEAN NOT NULL DEFAULT 1, "
+            "is_active BOOLEAN NOT NULL DEFAULT 1, "
+            "created_at DATETIME)"
+        )
+    )
+    await conn.execute(
+        text(
+            f"INSERT INTO users_new ({insert_list}) "
+            f"SELECT {select_list} FROM users"
+        )
+    )
+    await conn.execute(text("DROP TABLE users"))
+    await conn.execute(text("ALTER TABLE users_new RENAME TO users"))
+    # ایندکس‌های همسان با مدل دوباره ساخته می‌شوند؛ با افتادن جدول قدیمی
+    # ایندکس‌هایش هم افتاده‌اند.
+    await conn.execute(
+        text("CREATE UNIQUE INDEX IF NOT EXISTS ix_users_username ON users (username)")
+    )
+    await conn.execute(
+        text("CREATE UNIQUE INDEX IF NOT EXISTS ix_users_email ON users (email)")
+    )
+    await conn.execute(
+        text("CREATE INDEX IF NOT EXISTS ix_users_restaurant_id ON users (restaurant_id)")
+    )
+
+
 async def ensure_schema_columns(conn) -> None:
     """
     ستون‌های اضافه‌شده در نسخه‌های جدید را بدون حذف داده به جدول‌ها اضافه می‌کند.
@@ -127,13 +219,7 @@ async def ensure_schema_columns(conn) -> None:
     قدیمی (از جمله دیتابیس لپ‌تاپ کاربر) به‌صورت خودکار به‌روز شوند.
     """
 
-    def table_columns(sync_conn, table_name: str) -> set[str] | None:
-        inspector = inspect(sync_conn)
-        if not inspector.has_table(table_name):
-            return None
-        return {column["name"] for column in inspector.get_columns(table_name)}
-
-    menu_item_columns = await conn.run_sync(table_columns, "menu_items")
+    menu_item_columns = await conn.run_sync(table_column_names, "menu_items")
     if menu_item_columns is not None:
         # دیتابیس‌های قبلی بدون حذف داده به‌روزرسانی می‌شوند.
         if "image_filename" not in menu_item_columns:
@@ -151,7 +237,7 @@ async def ensure_schema_columns(conn) -> None:
                 )
             )
 
-    category_columns = await conn.run_sync(table_columns, "menu_categories")
+    category_columns = await conn.run_sync(table_column_names, "menu_categories")
     if category_columns is not None and "sort_order" not in category_columns:
         await conn.execute(
             text(
@@ -159,7 +245,7 @@ async def ensure_schema_columns(conn) -> None:
             )
         )
 
-    restaurant_columns = await conn.run_sync(table_columns, "restaurants")
+    restaurant_columns = await conn.run_sync(table_column_names, "restaurants")
     if restaurant_columns is not None:
         # هویت بصری کافه (لوگو و تصویر پس‌زمینه)
         if "logo_filename" not in restaurant_columns:
@@ -187,7 +273,7 @@ async def ensure_schema_columns(conn) -> None:
             )
 
     # --- کاربران: نام کاربری، نقش، اتصال به کافه و فعال/غیرفعال ---
-    user_columns = await conn.run_sync(table_columns, "users")
+    user_columns = await conn.run_sync(table_column_names, "users")
     if user_columns is not None:
         if "username" not in user_columns:
             await conn.execute(
@@ -211,6 +297,16 @@ async def ensure_schema_columns(conn) -> None:
             await conn.execute(
                 text("ALTER TABLE users ADD COLUMN restaurant_id INTEGER")
             )
+
+        # دیتابیس‌های نسخه‌های اول email را اجباری گرفته بودند؛ ساخت صاحب
+        # کافهٔ بدون ایمیل روی آن‌ها خطای ۵۰۰ می‌داد. جدول بازسازی می‌شود.
+        user_details = await conn.run_sync(table_column_details, "users")
+        email_detail = next(
+            (column for column in user_details if column["name"] == "email"),
+            None,
+        )
+        if email_detail is not None and not email_detail["nullable"]:
+            await rebuild_users_table_without_required_email(conn)
 
         await backfill_usernames(conn)
 
@@ -269,7 +365,7 @@ async def ensure_admin_user(session: AsyncSession) -> None:
                 username=username,
                 # در دیتابیس‌های قدیمی ستون email اجباری است؛ این نشانی
                 # فقط جای‌نگهدار است و به کاربر نمایش داده نمی‌شود.
-                email=f"{username}@admin.cafe.local",
+                email=placeholder_email(username),
                 password_hash=hash_password(settings.ADMIN_PASSWORD),
                 role="admin",
                 is_owner=True,
