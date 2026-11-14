@@ -68,19 +68,6 @@ function validateOwnerUsername(value: string): string | null {
   return null;
 }
 
-async function getError(response: Response, fallback: string) {
-  const data = (await response.json().catch(() => null)) as {
-    detail?: string | { msg?: string }[];
-  } | null;
-  if (typeof data?.detail === "string") return data.detail;
-  if (Array.isArray(data?.detail) && data.detail[0]?.msg) {
-    return String(data.detail[0].msg);
-  }
-  return fallback;
-}
-
-
-
 export default function AdminClient({
   initialRestaurants,
   baseUrl,
