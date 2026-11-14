@@ -1,9 +1,13 @@
-# نمونهٔ پیکربندی Caddy برای کافه‌یار
+# پیکربندی Caddy برای کافه‌یار (HTTPS خودکار)
 #
-# استفاده:
-#   1) دامنه را به IP سرور وصل کنید (رکورد A/AAAA).
-#   2) این فایل را در /etc/caddy/Caddyfile کپی و DOMAIN را جایگزین کنید.
-#   3) systemctl reload caddy
+# ۱) پیکربندی مستقل (systemd):
+#    sudo cp deploy/Caddyfile /etc/caddy/Caddyfile
+#    sudo sed -i 's/cafe.example.com/دامنهٔ-شما/' /etc/caddy/Caddyfile
+#    sudo systemctl reload caddy
+#
+# ۲) با Docker Compose:
+#    همین فایل به کانتینر Caddy وصل می‌شود؛ نام سرویس‌ها web و api هستند.
+#    در حالت Docker، آدرس‌های 127.0.0.1 را به web:3000 و api:8000 تغییر دهید.
 #
 # Caddy گواهی HTTPS را خودکار می‌گیرد و تمدید می‌کند.
 
@@ -14,7 +18,6 @@
 cafe.example.com {
 	encode zstd gzip
 
-	# هدرهای امنیتی پایه (HSTS را Caddy خودکار اضافه می‌کند)
 	header {
 		Strict-Transport-Security "max-age=31536000; includeSubDomains"
 		X-Content-Type-Options "nosniff"
@@ -22,9 +25,22 @@ cafe.example.com {
 		-Server
 	}
 
+	# تصاویر آپلودی: کش یک‌ساله (نام فایل یکتاست)
+	# این بلوک باید پیش از /api/* بیاید چون handle ها به ترتیب بررسی می‌شوند.
+	handle /api/v1/uploads/* {
+		header Cache-Control "public, max-age=31536000, immutable"
+		reverse_proxy 127.0.0.1:8000
+	}
+
 	# درخواست‌های API مستقیم به FastAPI می‌روند (بدون واسطهٔ Next.js)
 	handle /api/* {
 		reverse_proxy 127.0.0.1:8000
+	}
+
+	# دارایی‌های استاتیک Next.js
+	handle /_next/static/* {
+		header Cache-Control "public, max-age=31536000, immutable"
+		reverse_proxy 127.0.0.1:3000
 	}
 
 	# بقیهٔ مسیرها به Next.js

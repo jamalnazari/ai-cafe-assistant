@@ -95,6 +95,17 @@ class SqlAlchemyMenuRepository:
                 restaurant.background_filename
             ),
             restaurant_about=restaurant.about_text,
+            restaurant_address=restaurant.address,
+            restaurant_phone=restaurant.phone,
+            opening_hours=restaurant.opening_hours,
+            price_range=restaurant.price_range,
+            city=restaurant.city or "گرگان",
+            cuisine_tags=list(restaurant.cuisine_tags or []),
+            faq=[
+                {"question": item["question"], "answer": item["answer"]}
+                for item in (restaurant.faq or [])
+                if isinstance(item, dict) and item.get("question") and item.get("answer")
+            ],
             categories=category_names,
             items=items,
         )

@@ -233,6 +233,10 @@ curl -fsS http://127.0.0.1:8000/health
 - [ ] پورت‌های ۸۰۰۰ و ۳۰۰۰ از بیرون بسته‌اند
 - [ ] پشتیبان روزانه تست شده و یک بار بازگردانی را امتحان کرده‌اید
 - [ ] `.env` در گیت نیست (`git check-ignore apps/api/.env`)
+- [ ] `ADMIN_PASSWORD` از مقدار پیش‌فرض `Jamal@1381` تغییر کرده است
+- [ ] `NEXT_PUBLIC_SITE_URL` با دامنهٔ نهایی و `https` تنظیم شده است
+- [ ] `https://دامنه/sitemap.xml` و `https://دامنه/robots.txt` پاسخ می‌دهند
+- [ ] `/dashboard` و `/admin` در `robots.txt` مسدود شده‌اند
 
 ---
 
@@ -251,6 +255,90 @@ git commit -m "chore: stop tracking local database"
 
 ```bash
 cp apps/api/cafe.db ~/cafe.db.backup
+```
+
+---
+
+---
+
+## ۱۳) استقرار با Docker (مسیر سریع‌تر)
+
+اگر Docker را ترجیح می‌دهید، نیازی به نصب پایتون/نود روی سرور نیست:
+
+```bash
+sudo apt update && sudo apt install -y docker.io docker-compose-plugin git
+sudo mkdir -p /srv && cd /srv
+sudo git clone https://github.com/jamalnazari/ai-cafe-assistant.git
+cd ai-cafe-assistant
+
+cp .env.example .env
+# حداقل این‌ها را ویرایش کنید:
+#   ENVIRONMENT=production
+#   SECRET_KEY=<رشتهٔ تصادفی ۴۸ نویسه>
+#   ADMIN_PASSWORD=<رمز قوی>
+#   NEXT_PUBLIC_SITE_URL=https://cafe.example.com
+#   ALLOWED_HOSTS=cafe.example.com
+#   AI_API_KEY=...
+nano .env
+
+# دامنه را در deploy/Caddyfile جایگزین کنید (و آدرس‌ها را به web:3000 و api:8000 تغییر دهید)
+nano deploy/Caddyfile
+
+docker compose up -d --build
+docker compose ps
+curl -fsS http://127.0.0.1/api/health   # همان /health پشت Caddy
+```
+
+نکات:
+- داده‌ها در volume با نام `cafe-data` نگه داشته می‌شوند (دیتابیس، تصاویر، پشتیبان‌ها).
+- به‌روزرسانی: `git pull && docker compose up -d --build` (volume دست نمی‌خورد).
+- پشتیبان: `docker compose exec api python -m app.db.backup_db`
+- لاگ‌ها: `docker compose logs -f api web`
+
+---
+
+## ۱۴) سئوی محلی پس از استقرار (چک‌لیست)
+
+کد سایت آماده است، اما رتبه در گوگل کارِ محتوا و پروفایل کسب‌وکار است:
+
+1. **Search Console**: دامنه را اضافه کنید و `https://دامنه/sitemap.xml` را ثبت کنید.
+2. **هر کافه را کامل کنید** (پنل مدیر → ویرایش کافه): شهر، آدرس دقیق، تلفن، ساعت کاری،
+   محدودهٔ قیمت، برچسب‌های آشپزی و ۳ تا ۵ پرسش پرتکرار. این‌ها هم در صفحه دیده می‌شوند و
+   هم به‌صورت دادهٔ ساخت‌یافتهٔ `Restaurant`/`FAQPage` به گوگل می‌رسند.
+3. **Google Business Profile** برای هر کافه بسازید (تأیید مالکیت لازم است) و لینک آن را
+   به `https://دامنه/r/<slug>` بدهید؛ NAP (نام/آدرس/تلفن) را با سایت یکسان نگه دارید.
+4. **نظر واقعی مشتری** مهم‌ترین عامل رتبهٔ محلی است؛ QR نظردهی روی میز بگذارید.
+5. صفحهٔ شهر (`/city/gorgan`) را با عکس و متن به‌روز نگه دارید؛ لینک داخلی آن در فوتر
+   صفحهٔ اصلی هست.
+6. بررسی سریع سلامت سئو:
+
+```bash
+curl -s https://دامنه/sitemap.xml | head
+curl -s https://دامنه/robots.txt
+curl -s https://دامنه/r/<slug> | grep -o '"@type":"Restaurant"'
+```
+
+> صفحهٔ `/r/<slug>` کاملاً روی سرور رندر می‌شود؛ اگر محتوای کافه را در مرورگر دیدید ولی
+> `curl` متن نداشت، `API_INTERNAL_URL` در سرویس وب اشتباه است.
+
+---
+
+## ۱۵) پشتیبان‌گیری خودکار
+
+```bash
+sudo mkdir -p /var/backups/ai-cafe-assistant
+sudo cp /srv/ai-cafe-assistant/deploy/backup.sh /usr/local/bin/cafe-backup
+sudo chmod +x /usr/local/bin/cafe-backup
+sudo crontab -e
+# 0 3 * * * /usr/local/bin/cafe-backup >> /var/log/cafe-backup.log 2>&1
+```
+
+بازگردانی:
+
+```bash
+sudo systemctl stop cafe-api
+sudo cp /var/backups/ai-cafe-assistant/cafe-YYYYmmdd-HHMMSS.db /srv/ai-cafe-assistant/apps/api/cafe.db
+sudo systemctl start cafe-api
 ```
 
 ---

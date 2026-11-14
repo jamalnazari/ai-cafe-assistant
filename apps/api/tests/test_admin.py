@@ -455,3 +455,97 @@ def test_legacy_database_with_required_email_can_create_cafe(tmp_path, monkeypat
     finally:
         app.dependency_overrides.clear()
         asyncio.run(engine.dispose())
+
+
+# --- سئوی محلی: اطلاعات تماس، دادهٔ عمومی و نقشهٔ سایت ---
+
+
+def test_contact_details_reach_public_payload_and_public_list(admin_context):
+    client = admin_context
+    login(client, ADMIN_USERNAME, ADMIN_PASSWORD)
+
+    created = create_cafe(
+        client,
+        name="عمارت",
+        label_word="رستوران",
+        city="گرگان",
+        address="گرگان، خیابان شهید بهشتی، پلاک ۱۲",
+        phone="017-32123456",
+        opening_hours="هر روز ۱۲ تا ۲۳",
+        price_range="۱۵۰ تا ۳۵۰ هزار تومان",
+        cuisine_tags=["ایرانی", "سنتی"],
+        faq=[{"question": "پارکینگ دارید؟", "answer": "بله، پارکینگ اختصاصی داریم."}],
+    )
+    assert created.status_code == 201, created.text
+    cafe = created.json()
+    assert cafe["address"] == "گرگان، خیابان شهید بهشتی، پلاک ۱۲"
+    assert cafe["phone"] == "017-32123456"
+    assert cafe["city"] == "گرگان"
+    assert cafe["cuisine_tags"] == ["ایرانی", "سنتی"]
+    assert cafe["faq_question_count"] == 1
+
+    # همان اطلاعات در منوی عمومی (مبنای JSON-LD صفحهٔ مشتری)
+    menu = client.get(f"/api/v1/restaurants/{cafe['slug']}/menu").json()
+    assert menu["restaurant_address"] == "گرگان، خیابان شهید بهشتی، پلاک ۱۲"
+    assert menu["restaurant_phone"] == "017-32123456"
+    assert menu["opening_hours"] == "هر روز ۱۲ تا ۲۳"
+    assert menu["price_range"] == "۱۵۰ تا ۳۵۰ هزار تومان"
+    assert menu["cuisine_tags"] == ["ایرانی", "سنتی"]
+    assert menu["faq"][0]["question"] == "پارکینگ دارید؟"
+
+    # فهرست عمومی (بدون ورود) برای صفحهٔ شهر و sitemap
+    client.post("/api/v1/auth/logout")
+    public = client.get("/api/v1/public/restaurants")
+    assert public.status_code == 200
+    assert [item["slug"] for item in public.json()] == [cafe["slug"]]
+    assert public.json()[0]["menu_path"] == f"/r/{cafe['slug']}"
+    filtered = client.get("/api/v1/public/restaurants", params={"city": "گرگان"})
+    assert len(filtered.json()) == 1
+    other_city = client.get("/api/v1/public/restaurants", params={"city": "تهران"})
+    assert other_city.json() == []
+
+
+def test_owner_can_update_contact_details_and_faq(admin_context):
+    client = admin_context
+    login(client, ADMIN_USERNAME, ADMIN_PASSWORD)
+    cafe = create_cafe(client).json()
+    client.post("/api/v1/auth/logout")
+
+    assert login(client, "teras_owner", "Teras@1234").status_code == 200
+    response = client.patch(
+        f"/api/v1/restaurants/{cafe['slug']}",
+        json={
+            "phone": "017-32000000",
+            "opening_hours": "شنبه تا پنجشنبه ۱۱ تا ۲۳",
+            "cuisine_tags": ["کافه", "دسر"],
+            "faq": [{"question": "رزرو لازم است؟", "answer": "برای آخر هفته بله."}],
+        },
+    )
+    assert response.status_code == 200, response.text
+    body = response.json()
+    assert body["phone"] == "017-32000000"
+    assert body["cuisine_tags"] == ["کافه", "دسر"]
+    assert body["faq"][0]["question"] == "رزرو لازم است؟"
+
+    # ارسال آرایهٔ خالی، پرسش‌ها را پاک می‌کند.
+    cleared = client.patch(
+        f"/api/v1/restaurants/{cafe['slug']}", json={"faq": []}
+    )
+    assert cleared.status_code == 200
+    assert cleared.json()["faq"] == []
+
+
+def test_invalid_phone_is_rejected_with_persian_message(admin_context):
+    client = admin_context
+    login(client, ADMIN_USERNAME, ADMIN_PASSWORD)
+    response = create_cafe(client, phone="۰۱۷-۱۲۳")
+    assert response.status_code == 422
+    assert "شمارهٔ تماس" in response.text
+
+
+def test_upload_urls_get_long_cache_headers(admin_context):
+    """تصاویر آپلودی نام یکتا دارند؛ باید یک‌ساله و immutable کش شوند."""
+    response = admin_context.get("/api/v1/uploads/menu-items/missing-sample.png")
+    cache = response.headers.get("cache-control", "")
+    assert "immutable" in cache
+    assert "max-age=31536000" in cache

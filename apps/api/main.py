@@ -51,6 +51,7 @@ from app.schemas.admin import (
     RestaurantCreate,
 )
 from app.schemas.auth import LoginRequest, LoginResponse, OwnerResponse
+from app.schemas.contact import PublicRestaurant, RestaurantProfileOut
 from app.schemas.chat import TextQuestionRequest
 from app.schemas.menu import (
     MenuCategoryCreate,
@@ -149,6 +150,11 @@ async def add_security_headers(request: Request, call_next):
     response.headers.setdefault(
         "Permissions-Policy", "camera=(), microphone=(), geolocation=()"
     )
+    # نام فایل تصاویر آپلودی یکتاست؛ پس می‌توان برای همیشه کش کرد.
+    if request.url.path.startswith("/api/v1/uploads/"):
+        response.headers.setdefault(
+            "Cache-Control", "public, max-age=31536000, immutable"
+        )
     return response
 
 settings.UPLOAD_DIR.mkdir(parents=True, exist_ok=True)
@@ -185,6 +191,53 @@ class QuestionResponse(BaseModel):
     # آیتم‌هایی از منو که در پاسخ به آن‌ها اشاره شده است؛ برای نمایش تصویر
     # پیشنهادها در رابط مشتری و جلوگیری از ساخت آیتم خیالی توسط LLM.
     recommended_items: list[MenuItemSchema] = Field(default_factory=list)
+
+
+@app.get("/api/v1/public/restaurants", response_model=list[PublicRestaurant])
+async def public_restaurants(
+    db: AsyncSession = Depends(get_db),
+    city: str | None = Query(default=None, max_length=60),
+) -> list[PublicRestaurant]:
+    """فهرست کافه‌های فعال برای صفحهٔ هاب شهر و نقشهٔ سایت (بدون نیاز به ورود)."""
+    stmt = (
+        select(RestaurantModel)
+        .where(RestaurantModel.is_active.is_(True))
+        .order_by(RestaurantModel.id)
+    )
+    if city:
+        stmt = stmt.where(func.coalesce(RestaurantModel.city, "گرگان") == city)
+    restaurants = (await db.execute(stmt)).scalars().all()
+
+    counts = dict(
+        (
+            await db.execute(
+                select(MenuItemModel.restaurant_id, func.count(MenuItemModel.id))
+                .group_by(MenuItemModel.restaurant_id)
+            )
+        ).all()
+    )
+
+    return [
+        PublicRestaurant(
+            slug=restaurant.slug,
+            name=restaurant.name,
+            label_word=restaurant.label_word or "کافه",
+            city=restaurant.city or "گرگان",
+            address=restaurant.address,
+            phone=restaurant.phone,
+            opening_hours=restaurant.opening_hours,
+            price_range=restaurant.price_range,
+            about=restaurant.about_text,
+            cuisine_tags=list(restaurant.cuisine_tags or []),
+            logo_url=branding_image_service.get_image_url(restaurant.logo_filename),
+            background_url=branding_image_service.get_image_url(
+                restaurant.background_filename
+            ),
+            menu_path=f"/r/{restaurant.slug}",
+            item_count=int(counts.get(restaurant.id, 0) or 0),
+        )
+        for restaurant in restaurants
+    ]
 
 
 @app.get("/health")
@@ -327,13 +380,15 @@ async def clear_branding_image(
     branding_image_service.delete_image(previous_filename)
 
 
-@app.patch("/api/v1/restaurants/{restaurant_slug}")
+@app.patch(
+    "/api/v1/restaurants/{restaurant_slug}", response_model=RestaurantProfileOut
+)
 async def update_restaurant(
     restaurant_slug: str,
     body: RestaurantUpdate,
     db: AsyncSession = Depends(get_db),
     _owner_guard: None = Depends(guard_owner_restaurant),
-) -> dict[str, str | None]:
+) -> RestaurantProfileOut:
     """به‌روزرسانی نام کافه و/یا توضیحات «دربارهٔ مجموعه»."""
     restaurant = await get_restaurant_or_404(db, restaurant_slug)
 
@@ -342,13 +397,15 @@ async def update_restaurant(
     if "about" in body.model_fields_set:
         # مقدار خالی (None پس از اعتبارسنجی) یعنی پاک‌کردن توضیحات.
         restaurant.about_text = body.about
+    apply_contact_fields(restaurant, body)
 
     await db.commit()
-    return {
-        "message": "اطلاعات کافه به‌روزرسانی شد.",
-        "name": restaurant.name,
-        "about": restaurant.about_text,
-    }
+    return RestaurantProfileOut(
+        message="اطلاعات کافه به‌روزرسانی شد.",
+        name=restaurant.name,
+        about=restaurant.about_text,
+        **contact_fields_payload(restaurant),
+    )
 
 
 @app.post("/api/v1/restaurants/{restaurant_slug}/logo")
@@ -881,6 +938,48 @@ async def revoke_user_sessions(db: AsyncSession, user_id: int) -> None:
     )
 
 
+# فیلدهای تماس/سئوی محلی که هم مدیر و هم صاحب کافه می‌توانند ویرایش کنند.
+CONTACT_FIELDS = (
+    "address",
+    "phone",
+    "opening_hours",
+    "price_range",
+    "city",
+    "cuisine_tags",
+    "faq",
+)
+
+
+def contact_fields_payload(source) -> dict:
+    """اطلاعات تماس را به شکل قابل انتشار در API برمی‌گرداند."""
+    faq = []
+    for item in getattr(source, "faq", None) or []:
+        if isinstance(item, dict) and item.get("question") and item.get("answer"):
+            faq.append(
+                {"question": str(item["question"]), "answer": str(item["answer"])}
+            )
+    return {
+        "address": getattr(source, "address", None),
+        "phone": getattr(source, "phone", None),
+        "opening_hours": getattr(source, "opening_hours", None),
+        "price_range": getattr(source, "price_range", None),
+        "city": getattr(source, "city", None) or "گرگان",
+        "cuisine_tags": list(getattr(source, "cuisine_tags", None) or []),
+        "faq": faq,
+    }
+
+
+def apply_contact_fields(restaurant: RestaurantModel, body) -> None:
+    """فقط فیلدهایی را که در بدنهٔ درخواست آمده‌اند روی کافه می‌نویسد."""
+    for field in CONTACT_FIELDS:
+        if field not in body.model_fields_set:
+            continue
+        value = getattr(body, field)
+        if field == "faq" and value is not None:
+            value = [item.model_dump() for item in value]
+        setattr(restaurant, field, value)
+
+
 async def to_admin_out(
     db: AsyncSession, restaurant: RestaurantModel
 ) -> RestaurantAdminOut:
@@ -912,6 +1011,13 @@ async def to_admin_out(
             restaurant.background_filename
         ),
         menu_path=f"/r/{restaurant.slug}",
+        **{
+            key: value
+            for key, value in contact_fields_payload(restaurant).items()
+            if key != "faq"
+        },
+        faq=contact_fields_payload(restaurant)["faq"],
+        faq_question_count=len(contact_fields_payload(restaurant)["faq"]),
     )
 
 
@@ -966,6 +1072,13 @@ async def admin_create_restaurant(
         name=body.name,
         label_word=body.label_word,
         about_text=body.about,
+        city=body.city or "گرگان",
+        address=body.address,
+        phone=body.phone,
+        opening_hours=body.opening_hours,
+        price_range=body.price_range,
+        cuisine_tags=body.cuisine_tags,
+        faq=[item.model_dump() for item in body.faq] if body.faq else None,
         is_active=True,
     )
     db.add(restaurant)
@@ -1030,6 +1143,7 @@ async def admin_update_restaurant(
         restaurant.label_word = body.label_word
     if "about" in body.model_fields_set:
         restaurant.about_text = body.about
+    apply_contact_fields(restaurant, body)
     if body.slug is not None and body.slug != restaurant.slug:
         restaurant.slug = await unique_restaurant_slug(
             db, body.slug, exclude_id=restaurant.id
