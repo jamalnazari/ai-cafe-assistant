@@ -32,7 +32,7 @@ import { readApiError as getError } from "@/lib/api-errors";
 import { cn } from "@/lib/cn";
 import { formatNumber } from "@/lib/format";
 
-import { LABEL_SUGGESTIONS, type AdminRestaurant } from "./types";
+import { LABEL_SUGGESTIONS, type AdminRestaurant, type CafeFaq } from "./types";
 
 type AdminClientProps = {
   initialRestaurants: AdminRestaurant[];
@@ -47,6 +47,14 @@ type CafeForm = {
   about: string;
   owner_username: string;
   owner_password: string;
+  // اطلاعات تماس و سئوی محلی
+  address: string;
+  phone: string;
+  opening_hours: string;
+  price_range: string;
+  city: string;
+  cuisine_tags: string;
+  faq: string;
 };
 
 const EMPTY_FORM: CafeForm = {
@@ -56,7 +64,43 @@ const EMPTY_FORM: CafeForm = {
   about: "",
   owner_username: "",
   owner_password: "",
+  address: "",
+  phone: "",
+  opening_hours: "",
+  price_range: "",
+  city: "گرگان",
+  cuisine_tags: "",
+  faq: "",
 };
+
+/** «برچسب‌ها» را از رشتهٔ جداشده با ویرگول به آرایه تبدیل می‌کند. */
+function parseTags(value: string): string[] {
+  return value
+    .split(/[,،]/)
+    .map((tag) => tag.trim())
+    .filter(Boolean)
+    .slice(0, 8);
+}
+
+/** خطوط «پرسش | پاسخ» را به آرایهٔ FAQ تبدیل می‌کند. */
+function parseFaq(value: string): CafeFaq[] {
+  return value
+    .split("\n")
+    .map((line) => line.split("|"))
+    .filter((parts) => parts.length >= 2)
+    .map((parts) => ({
+      question: parts[0].trim(),
+      answer: parts.slice(1).join("|").trim(),
+    }))
+    .filter((item) => item.question.length >= 3 && item.answer.length > 0)
+    .slice(0, 10);
+}
+
+function formatFaq(faq: CafeFaq[] | null | undefined): string {
+  return (faq ?? [])
+    .map((item) => `${item.question} | ${item.answer}`)
+    .join("\n");
+}
 
 const USERNAME_PATTERN = /^[a-z0-9][a-z0-9_.-]{2,31}$/;
 
@@ -66,6 +110,18 @@ function validateOwnerUsername(value: string): string | null {
     return "نام کاربری باید ۳ تا ۳۲ نویسه و فقط شامل حروف کوچک انگلیسی، عدد، نقطه، خط تیره یا زیرخط باشد و با حرف یا عدد شروع شود.";
   }
   return null;
+}
+
+/** فیلدهای تماس مشترک بین ساخت و ویرایش کافه. */
+function contactBody(form: CafeForm) {
+  return {
+    address: form.address.trim() || null,
+    phone: form.phone.trim() || null,
+    opening_hours: form.opening_hours.trim() || null,
+    price_range: form.price_range.trim() || null,
+    city: form.city.trim() || null,
+    cuisine_tags: parseTags(form.cuisine_tags),
+  };
 }
 
 export default function AdminClient({
@@ -137,6 +193,13 @@ export default function AdminClient({
       about: cafe.about ?? "",
       owner_username: cafe.owner_username ?? "",
       owner_password: "",
+      address: cafe.address ?? "",
+      phone: cafe.phone ?? "",
+      opening_hours: cafe.opening_hours ?? "",
+      price_range: cafe.price_range ?? "",
+      city: cafe.city ?? "گرگان",
+      cuisine_tags: (cafe.cuisine_tags ?? []).join("، "),
+      faq: formatFaq(cafe.faq),
     });
     setFormError(null);
     setEditing(cafe);
@@ -168,6 +231,8 @@ export default function AdminClient({
           about: form.about.trim() || null,
           owner_username: form.owner_username,
           owner_password: form.owner_password,
+          ...contactBody(form),
+          faq: parseFaq(form.faq),
         }),
       });
       if (!response.ok) {
@@ -206,6 +271,8 @@ export default function AdminClient({
         label_word: form.label_word,
         slug: form.slug.trim() || null,
         about: form.about.trim(),
+        ...contactBody(form),
+        faq: parseFaq(form.faq),
       };
       if (form.owner_username && form.owner_username !== editing.owner_username) {
         body.owner_username = form.owner_username;
@@ -451,6 +518,129 @@ export default function AdminClient({
           className="w-full resize-y rounded-xl border border-line bg-surface-muted px-3 py-2.5 text-[11px] leading-6 text-ink outline-none placeholder:text-ink-faint focus:border-primary focus:ring-4 focus:ring-primary/15"
         />
       </div>
+
+      <fieldset className="space-y-3 rounded-2xl border border-line bg-surface-muted/40 p-3">
+        <legend className="px-1 text-[10px] font-bold text-ink-soft">
+          اطلاعات تماس و سئو (برای دیده‌شدن در گوگل)
+        </legend>
+
+        <div className="grid gap-3 sm:grid-cols-2">
+          <div className="space-y-1.5">
+            <label htmlFor="cafe-city" className="text-[10px] font-bold text-ink-soft">
+              شهر
+            </label>
+            <input
+              id="cafe-city"
+              value={form.city}
+              onChange={(event) =>
+                setForm((current) => ({ ...current, city: event.target.value }))
+              }
+              maxLength={60}
+              placeholder="گرگان"
+              className="w-full rounded-xl border border-line bg-surface px-3 py-2.5 text-[11px] text-ink outline-none placeholder:text-ink-faint focus:border-primary focus:ring-4 focus:ring-primary/15"
+            />
+          </div>
+
+          <div className="space-y-1.5">
+            <label htmlFor="cafe-phone" className="text-[10px] font-bold text-ink-soft">
+              تلفن تماس
+            </label>
+            <input
+              id="cafe-phone"
+              value={form.phone}
+              onChange={(event) =>
+                setForm((current) => ({ ...current, phone: event.target.value }))
+              }
+              dir="ltr"
+              maxLength={30}
+              placeholder="017-32123456"
+              className="w-full rounded-xl border border-line bg-surface px-3 py-2.5 text-left text-[11px] text-ink outline-none placeholder:text-ink-faint focus:border-primary focus:ring-4 focus:ring-primary/15"
+            />
+          </div>
+        </div>
+
+        <div className="space-y-1.5">
+          <label htmlFor="cafe-address" className="text-[10px] font-bold text-ink-soft">
+            آدرس
+          </label>
+          <input
+            id="cafe-address"
+            value={form.address}
+            onChange={(event) =>
+              setForm((current) => ({ ...current, address: event.target.value }))
+            }
+            maxLength={255}
+            placeholder="گرگان، خیابان شهید بهشتی، پلاک ۱۲"
+            className="w-full rounded-xl border border-line bg-surface px-3 py-2.5 text-[11px] text-ink outline-none placeholder:text-ink-faint focus:border-primary focus:ring-4 focus:ring-primary/15"
+          />
+        </div>
+
+        <div className="grid gap-3 sm:grid-cols-2">
+          <div className="space-y-1.5">
+            <label htmlFor="cafe-hours" className="text-[10px] font-bold text-ink-soft">
+              ساعت کاری
+            </label>
+            <input
+              id="cafe-hours"
+              value={form.opening_hours}
+              onChange={(event) =>
+                setForm((current) => ({ ...current, opening_hours: event.target.value }))
+              }
+              maxLength={255}
+              placeholder="هر روز ۱۲ تا ۲۳"
+              className="w-full rounded-xl border border-line bg-surface px-3 py-2.5 text-[11px] text-ink outline-none placeholder:text-ink-faint focus:border-primary focus:ring-4 focus:ring-primary/15"
+            />
+          </div>
+
+          <div className="space-y-1.5">
+            <label htmlFor="cafe-price" className="text-[10px] font-bold text-ink-soft">
+              محدودهٔ قیمت
+            </label>
+            <input
+              id="cafe-price"
+              value={form.price_range}
+              onChange={(event) =>
+                setForm((current) => ({ ...current, price_range: event.target.value }))
+              }
+              maxLength={40}
+              placeholder="۱۵۰ تا ۳۵۰ هزار تومان"
+              className="w-full rounded-xl border border-line bg-surface px-3 py-2.5 text-[11px] text-ink outline-none placeholder:text-ink-faint focus:border-primary focus:ring-4 focus:ring-primary/15"
+            />
+          </div>
+        </div>
+
+        <div className="space-y-1.5">
+          <label htmlFor="cafe-tags" className="text-[10px] font-bold text-ink-soft">
+            برچسب‌های آشپزی
+          </label>
+          <input
+            id="cafe-tags"
+            value={form.cuisine_tags}
+            onChange={(event) =>
+              setForm((current) => ({ ...current, cuisine_tags: event.target.value }))
+            }
+            placeholder="ایرانی، سنتی، کباب"
+            className="w-full rounded-xl border border-line bg-surface px-3 py-2.5 text-[11px] text-ink outline-none placeholder:text-ink-faint focus:border-primary focus:ring-4 focus:ring-primary/15"
+          />
+          <p className="text-[10px] text-ink-faint">با ویرگول جدا کنید؛ حداکثر ۸ برچسب.</p>
+        </div>
+
+        <div className="space-y-1.5">
+          <label htmlFor="cafe-faq" className="text-[10px] font-bold text-ink-soft">
+            پرسش‌های پرتکرار (هر خط: پرسش | پاسخ)
+          </label>
+          <textarea
+            id="cafe-faq"
+            value={form.faq}
+            onChange={(event) =>
+              setForm((current) => ({ ...current, faq: event.target.value }))
+            }
+            rows={3}
+            placeholder={"پارکینگ دارید؟ | بله، پارکینگ اختصاصی داریم."}
+            className="w-full resize-y rounded-xl border border-line bg-surface px-3 py-2.5 text-[11px] leading-6 text-ink outline-none placeholder:text-ink-faint focus:border-primary focus:ring-4 focus:ring-primary/15"
+          />
+        </div>
+      </fieldset>
 
       {formError && (
         <p

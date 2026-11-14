@@ -3,6 +3,7 @@ from typing import Literal
 from pydantic import BaseModel, Field, field_validator, model_validator
 
 from app.core.sanitize import clean_text
+from app.schemas.contact import ContactFields, FaqItem
 
 
 class Price(BaseModel):
@@ -40,6 +41,14 @@ class RestaurantMenu(BaseModel):
     background_url: str | None = None
     # توضیحات کلی مجموعه که صاحب کافه در پنل وارد می‌کند.
     restaurant_about: str | None = None
+    # اطلاعات تماس و سئوی محلی (صفحهٔ عمومی، نقشه و دادهٔ ساخت‌یافته)
+    restaurant_address: str | None = None
+    restaurant_phone: str | None = None
+    opening_hours: str | None = None
+    price_range: str | None = None
+    city: str | None = None
+    cuisine_tags: list[str] = Field(default_factory=list)
+    faq: list[FaqItem] = Field(default_factory=list)
     categories: list[str] = Field(default_factory=list)
     items: list[MenuItem]
 
@@ -47,7 +56,7 @@ class RestaurantMenu(BaseModel):
 MAX_ABOUT_LENGTH = 1500
 
 
-class RestaurantUpdate(BaseModel):
+class RestaurantUpdate(ContactFields):
     """تغییر اطلاعات پایهٔ کافه توسط صاحب کافه.
 
     هر فیلد اختیاری است؛ فقط فیلدهایی که در بدنه آمده‌اند به‌روزرسانی می‌شوند.
@@ -81,7 +90,17 @@ class RestaurantUpdate(BaseModel):
 
     @model_validator(mode="after")
     def require_at_least_one_field(self) -> "RestaurantUpdate":
-        provided = self.model_fields_set & {"name", "about"}
+        provided = self.model_fields_set & {
+            "name",
+            "about",
+            "address",
+            "phone",
+            "opening_hours",
+            "price_range",
+            "city",
+            "cuisine_tags",
+            "faq",
+        }
         if not provided:
             raise ValueError("هیچ فیلدی برای به‌روزرسانی ارسال نشده است.")
         return self

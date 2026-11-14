@@ -41,7 +41,47 @@ import {
   restaurantInitial,
 } from "@/lib/format";
 import { useCategoryScrollSpy } from "@/lib/use-category-scroll-spy";
-import type { BrandingKind, MenuItem, RestaurantMenu } from "./dashboard-types";
+import type {
+  BrandingKind,
+  MenuItem,
+  RestaurantMenu,
+} from "./dashboard-types";
+
+type CafeContact = {
+  city: string;
+  address: string;
+  phone: string;
+  opening_hours: string;
+  price_range: string;
+  cuisine_tags: string;
+  faq: string;
+};
+
+const EMPTY_CONTACT: CafeContact = {
+  city: "",
+  address: "",
+  phone: "",
+  opening_hours: "",
+  price_range: "",
+  cuisine_tags: "",
+  faq: "",
+};
+
+/** اطلاعات تماس را از منوی سرور به شکل فرم درمی‌آورد. */
+function contactFromMenu(menu: RestaurantMenu | null): CafeContact {
+  if (!menu) return EMPTY_CONTACT;
+  return {
+    city: menu.city ?? "",
+    address: menu.restaurant_address ?? "",
+    phone: menu.restaurant_phone ?? "",
+    opening_hours: menu.opening_hours ?? "",
+    price_range: menu.price_range ?? "",
+    cuisine_tags: (menu.cuisine_tags ?? []).join("، "),
+    faq: (menu.faq ?? [])
+      .map((item) => `${item.question} | ${item.answer}`)
+      .join("\n"),
+  };
+}
 
 const MAX_IMAGE_BYTES = 5 * 1024 * 1024;
 const ALLOWED_IMAGE_TYPES = ["image/jpeg", "image/png", "image/webp"];
@@ -154,10 +194,22 @@ export default function DashboardClient({
   const [aboutError, setAboutError] = useState<string | null>(null);
   const lastSyncedAbout = useRef<string | null>(null);
 
+  // --- اطلاعات تماس و سئوی محلی (آدرس، تلفن، ساعت کاری، پرسش‌های پرتکرار) ---
+  // مقادیر از منوی سرور مشتق می‌شوند و ویرایش‌های کاربر در یک «پیش‌نویس» نگه داشته
+  // می‌شود؛ بنابراین نیازی به همگام‌سازی با useEffect نیست.
+  const [contactDraft, setContactDraft] = useState<CafeContact | null>(null);
+  const [savingContact, setSavingContact] = useState(false);
+  const [contactError, setContactError] = useState<string | null>(null);
+
   // در موبایل فقط یکی از دو بخش «منو» یا «مدیریت کافه» نمایش داده می‌شود.
   const [mobilePanel, setMobilePanel] = useState<"menu" | "settings">("menu");
 
   const items = useMemo(() => menu?.items ?? [], [menu]);
+
+  const contact = contactDraft ?? contactFromMenu(menu);
+  const setContact = (
+    updater: (current: CafeContact) => CafeContact,
+  ) => setContactDraft(updater(contact));
 
   const categoryNames = useMemo(() => {
     if (!menu) return [];
@@ -241,6 +293,7 @@ export default function DashboardClient({
     setAboutText(about);
   }, [menu?.restaurant_about]);
 
+
   const saveBrandName = async (event: React.FormEvent) => {
     event.preventDefault();
     const name = brandName.trim();
@@ -308,6 +361,63 @@ export default function DashboardClient({
       );
     } finally {
       setSavingAbout(false);
+    }
+  };
+
+  const saveContact = async (event: React.FormEvent) => {
+    event.preventDefault();
+    if (savingContact) return;
+
+    setSavingContact(true);
+    setContactError(null);
+    try {
+      const tags = contact.cuisine_tags
+        .split(/[,،]/)
+        .map((tag) => tag.trim())
+        .filter(Boolean)
+        .slice(0, 8);
+      const faq = contact.faq
+        .split("\n")
+        .map((line) => line.split("|"))
+        .filter((parts) => parts.length >= 2)
+        .map((parts) => ({
+          question: parts[0].trim(),
+          answer: parts.slice(1).join("|").trim(),
+        }))
+        .filter((item) => item.question.length >= 3 && item.answer)
+        .slice(0, 10);
+
+      const response = await fetch(`/api/v1/restaurants/${restaurantSlug}`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          city: contact.city.trim() || null,
+          address: contact.address.trim() || null,
+          phone: contact.phone.trim() || null,
+          opening_hours: contact.opening_hours.trim() || null,
+          price_range: contact.price_range.trim() || null,
+          cuisine_tags: tags,
+          faq,
+        }),
+        credentials: "same-origin",
+      });
+      if (handleExpiredSession(response)) return;
+      if (!response.ok) {
+        throw new Error(
+          await getResponseError(response, "ذخیرهٔ اطلاعات تماس ناموفق بود."),
+        );
+      }
+      await fetchMenu();
+      setContactDraft(null);
+      push("اطلاعات تماس ذخیره شد و در صفحهٔ عمومی کافه نمایش داده می‌شود.");
+    } catch (error) {
+      setContactError(
+        error instanceof Error
+          ? error.message
+          : "ذخیرهٔ اطلاعات تماس ناموفق بود.",
+      );
+    } finally {
+      setSavingContact(false);
     }
   };
 
@@ -1433,6 +1543,163 @@ export default function DashboardClient({
                   </p>
                 )}
               </div>
+            </section>
+
+            <section className="rounded-3xl border border-line bg-surface shadow-card">
+              <div className="flex items-center gap-2.5 border-b border-line/60 px-4 py-3.5">
+                <span className="grid h-8 w-8 place-items-center rounded-xl bg-primary-soft text-primary">
+                  <Store className="h-4 w-4" aria-hidden="true" />
+                </span>
+                <div className="min-w-0 flex-1">
+                  <h3 className="flex items-center gap-1.5 text-sm font-black">
+                    اطلاعات تماس و ساعات کاری
+                    {!(menu?.restaurant_address && menu?.restaurant_phone) && (
+                      <span className="rounded-full bg-warning-soft px-1.5 py-0.5 text-[9px] font-bold text-warning">
+                        تکمیل نشده
+                      </span>
+                    )}
+                  </h3>
+                  <p className="text-[10px] text-ink-faint">
+                    در صفحهٔ عمومی کافه و نتایج جست‌وجوی گوگل نمایش داده می‌شود
+                  </p>
+                </div>
+              </div>
+
+              <form onSubmit={saveContact} className="space-y-3 p-4">
+                <div className="grid gap-3 sm:grid-cols-2">
+                  <div className="space-y-1.5">
+                    <label htmlFor="contact-city" className="text-[10px] font-bold text-ink-soft">
+                      شهر
+                    </label>
+                    <input
+                      id="contact-city"
+                      value={contact.city}
+                      onChange={(event) => setContact((c) => ({ ...c, city: event.target.value }))}
+                      maxLength={60}
+                      disabled={savingContact}
+                      placeholder="گرگان"
+                      className="w-full rounded-xl border border-line bg-surface-muted px-3 py-2.5 text-[11px] text-ink outline-none placeholder:text-ink-faint focus:border-primary focus:ring-4 focus:ring-primary/15 disabled:opacity-60"
+                    />
+                  </div>
+                  <div className="space-y-1.5">
+                    <label htmlFor="contact-phone" className="text-[10px] font-bold text-ink-soft">
+                      تلفن تماس
+                    </label>
+                    <input
+                      id="contact-phone"
+                      value={contact.phone}
+                      onChange={(event) => setContact((c) => ({ ...c, phone: event.target.value }))}
+                      dir="ltr"
+                      maxLength={30}
+                      disabled={savingContact}
+                      placeholder="017-32123456"
+                      className="w-full rounded-xl border border-line bg-surface-muted px-3 py-2.5 text-left text-[11px] text-ink outline-none placeholder:text-ink-faint focus:border-primary focus:ring-4 focus:ring-primary/15 disabled:opacity-60"
+                    />
+                  </div>
+                </div>
+
+                <div className="space-y-1.5">
+                  <label htmlFor="contact-address" className="text-[10px] font-bold text-ink-soft">
+                    آدرس
+                  </label>
+                  <input
+                    id="contact-address"
+                    value={contact.address}
+                    onChange={(event) => setContact((c) => ({ ...c, address: event.target.value }))}
+                    maxLength={255}
+                    disabled={savingContact}
+                    placeholder="گرگان، خیابان شهید بهشتی، پلاک ۱۲"
+                    className="w-full rounded-xl border border-line bg-surface-muted px-3 py-2.5 text-[11px] text-ink outline-none placeholder:text-ink-faint focus:border-primary focus:ring-4 focus:ring-primary/15 disabled:opacity-60"
+                  />
+                </div>
+
+                <div className="grid gap-3 sm:grid-cols-2">
+                  <div className="space-y-1.5">
+                    <label htmlFor="contact-hours" className="text-[10px] font-bold text-ink-soft">
+                      ساعت کاری
+                    </label>
+                    <input
+                      id="contact-hours"
+                      value={contact.opening_hours}
+                      onChange={(event) => setContact((c) => ({ ...c, opening_hours: event.target.value }))}
+                      maxLength={255}
+                      disabled={savingContact}
+                      placeholder="هر روز ۱۲ تا ۲۳"
+                      className="w-full rounded-xl border border-line bg-surface-muted px-3 py-2.5 text-[11px] text-ink outline-none placeholder:text-ink-faint focus:border-primary focus:ring-4 focus:ring-primary/15 disabled:opacity-60"
+                    />
+                  </div>
+                  <div className="space-y-1.5">
+                    <label htmlFor="contact-price" className="text-[10px] font-bold text-ink-soft">
+                      محدودهٔ قیمت
+                    </label>
+                    <input
+                      id="contact-price"
+                      value={contact.price_range}
+                      onChange={(event) => setContact((c) => ({ ...c, price_range: event.target.value }))}
+                      maxLength={40}
+                      disabled={savingContact}
+                      placeholder="۱۵۰ تا ۳۵۰ هزار تومان"
+                      className="w-full rounded-xl border border-line bg-surface-muted px-3 py-2.5 text-[11px] text-ink outline-none placeholder:text-ink-faint focus:border-primary focus:ring-4 focus:ring-primary/15 disabled:opacity-60"
+                    />
+                  </div>
+                </div>
+
+                <div className="space-y-1.5">
+                  <label htmlFor="contact-tags" className="text-[10px] font-bold text-ink-soft">
+                    برچسب‌های آشپزی (با ویرگول)
+                  </label>
+                  <input
+                    id="contact-tags"
+                    value={contact.cuisine_tags}
+                    onChange={(event) => setContact((c) => ({ ...c, cuisine_tags: event.target.value }))}
+                    disabled={savingContact}
+                    placeholder="ایرانی، سنتی، کباب"
+                    className="w-full rounded-xl border border-line bg-surface-muted px-3 py-2.5 text-[11px] text-ink outline-none placeholder:text-ink-faint focus:border-primary focus:ring-4 focus:ring-primary/15 disabled:opacity-60"
+                  />
+                </div>
+
+                <div className="space-y-1.5">
+                  <label htmlFor="contact-faq" className="text-[10px] font-bold text-ink-soft">
+                    پرسش‌های پرتکرار (هر خط: پرسش | پاسخ)
+                  </label>
+                  <textarea
+                    id="contact-faq"
+                    value={contact.faq}
+                    onChange={(event) => setContact((c) => ({ ...c, faq: event.target.value }))}
+                    rows={3}
+                    disabled={savingContact}
+                    placeholder={"پارکینگ دارید؟ | بله، پارکینگ اختصاصی داریم."}
+                    className="w-full resize-y rounded-xl border border-line bg-surface-muted px-3 py-2.5 text-[11px] leading-6 text-ink outline-none placeholder:text-ink-faint focus:border-primary focus:ring-4 focus:ring-primary/15 disabled:opacity-60"
+                  />
+                </div>
+
+                <div className="flex items-center justify-between gap-2">
+                  <p className="text-[10px] leading-5 text-ink-faint">
+                    آدرس و ساعت کاری در صفحهٔ عمومی و نقشهٔ گوگل استفاده می‌شود.
+                  </p>
+                  <button
+                    type="submit"
+                    disabled={savingContact}
+                    className="inline-flex shrink-0 items-center gap-1 rounded-xl bg-primary px-3 py-2.5 text-[10px] font-bold text-on-primary transition-colors hover:bg-primary-strong disabled:cursor-not-allowed disabled:opacity-50"
+                  >
+                    {savingContact ? (
+                      <LoaderCircle className="h-3.5 w-3.5 animate-spin" aria-hidden="true" />
+                    ) : (
+                      <Check className="h-3.5 w-3.5" aria-hidden="true" />
+                    )}
+                    ذخیرهٔ اطلاعات تماس
+                  </button>
+                </div>
+
+                {contactError && (
+                  <p
+                    role="alert"
+                    className="rounded-xl border border-danger/25 bg-danger-soft px-2.5 py-2 text-[10px] font-bold text-danger"
+                  >
+                    {contactError}
+                  </p>
+                )}
+              </form>
             </section>
 
             <section className="rounded-3xl border border-line bg-surface shadow-card">

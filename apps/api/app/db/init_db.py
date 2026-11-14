@@ -271,6 +271,25 @@ async def ensure_schema_columns(conn) -> None:
                     "NOT NULL DEFAULT 'کافه'"
                 )
             )
+        # اطلاعات تماس و سئوی محلی (صفحهٔ عمومی، دادهٔ ساخت‌یافته و نقشهٔ گوگل)
+        seo_columns = {
+            "address": "VARCHAR(255)",
+            "phone": "VARCHAR(30)",
+            "opening_hours": "VARCHAR(255)",
+            "price_range": "VARCHAR(40)",
+            "city": "VARCHAR(60)",
+            "cuisine_tags": "JSON",
+            "faq": "JSON",
+        }
+        for column, ddl in seo_columns.items():
+            if column not in restaurant_columns:
+                await conn.execute(
+                    text(f"ALTER TABLE restaurants ADD COLUMN {column} {ddl}")
+                )
+        if "city" not in restaurant_columns:
+            await conn.execute(
+                text("UPDATE restaurants SET city = 'گرگان' WHERE city IS NULL")
+            )
 
     # --- کاربران: نام کاربری، نقش، اتصال به کافه و فعال/غیرفعال ---
     user_columns = await conn.run_sync(table_column_names, "users")

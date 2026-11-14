@@ -6,6 +6,7 @@ from pydantic import BaseModel, Field, field_validator
 
 from app.core.config import DEFAULT_ADMIN_USERNAME
 from app.core.sanitize import clean_text
+from app.schemas.contact import ContactFields, FaqItem
 
 USERNAME_PATTERN = re.compile(r"^[a-z0-9][a-z0-9_.-]{2,31}$")
 SLUG_PATTERN = re.compile(r"^[a-z0-9][a-z0-9-]{1,38}[a-z0-9]$")
@@ -38,7 +39,7 @@ def normalize_username(value: str) -> str:
     return username
 
 
-class RestaurantCreate(BaseModel):
+class RestaurantCreate(ContactFields):
     name: str = Field(min_length=1, max_length=60)
     label_word: str = Field(default="کافه", min_length=1, max_length=30)
     slug: str | None = Field(default=None, max_length=40)
@@ -79,7 +80,7 @@ class RestaurantCreate(BaseModel):
         return clean_text(value) or None
 
 
-class RestaurantAdminUpdate(BaseModel):
+class RestaurantAdminUpdate(ContactFields):
     """همهٔ فیلدها اختیاری‌اند؛ فقط موارد ارسال‌شده تغییر می‌کنند."""
 
     name: str | None = Field(default=None, max_length=60)
@@ -143,6 +144,15 @@ class RestaurantAdminOut(BaseModel):
     logo_url: str | None = None
     background_url: str | None = None
     menu_path: str
+    # اطلاعات سئوی محلی
+    address: str | None = None
+    phone: str | None = None
+    opening_hours: str | None = None
+    price_range: str | None = None
+    city: str | None = None
+    cuisine_tags: list[str] | None = None
+    faq: list[FaqItem] = Field(default_factory=list)
+    faq_question_count: int = 0
 
 
 class AdminMessage(BaseModel):

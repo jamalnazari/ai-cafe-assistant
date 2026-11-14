@@ -9,6 +9,7 @@ import {
 } from "lucide-react";
 
 import ThemeSwitcher from "@/components/theme-switcher";
+import { CITIES } from "@/lib/cities";
 
 const features = [
   {
@@ -209,8 +210,20 @@ export default function Home() {
       </main>
 
       <footer className="border-t border-line/70 bg-surface/50">
-        <div className="mx-auto flex max-w-6xl flex-col items-center justify-between gap-2 px-5 py-5 text-[10px] text-ink-faint sm:flex-row">
+        <div className="mx-auto flex max-w-6xl flex-col items-center justify-between gap-3 px-5 py-5 text-[10px] text-ink-faint sm:flex-row">
           <p>کافه‌یار · دستیار هوشمند منوی کافه</p>
+          {/* لینک داخلی به صفحهٔ شهرها؛ برای سئوی محلی و دسترسی خزنده مهم است. */}
+          <nav aria-label="شهرها" className="flex flex-wrap items-center gap-3">
+            {CITIES.map((city) => (
+              <Link
+                key={city.slug}
+                href={`/city/${city.slug}`}
+                className="font-bold text-ink-soft transition-colors hover:text-primary"
+              >
+                کافه‌ها و رستوران‌های {city.name}
+              </Link>
+            ))}
+          </nav>
           <p dir="ltr">Next.js · FastAPI</p>
         </div>
       </footer>
