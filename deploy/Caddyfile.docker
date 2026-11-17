@@ -1,0 +1,73 @@
+# پیکربندی Caddy مخصوص Docker Compose
+#
+# حالت فعلی: فقط IP (بدون دامنه) → سرویس روی پورت 80 و بدون HTTPS.
+# ⚠️ مهم: در این حالت در فایل .env سرور باید SESSION_COOKIE_SECURE=False باشد
+#    وگرنه کوکی ورود ارسال نمی‌شود و login کار نمی‌کند.
+#
+# بعداً که دامنه وصل کردید: خط «:80» را با دامنهٔ خودتان جایگزین کنید
+# (مثلاً cafe.example.com) و ایمیل را در بالا عوض کنید؛ Caddy خودش گواهی
+# HTTPS می‌گیرد و تمدید می‌کند. فرمت دامنه‌دار در پایین به‌عنوان الگو مانده.
+#
+# نکته: برخلاف نسخهٔ systemd، اینجا آدرس سرویس‌ها web:3000 و api:8000 است.
+
+{
+	email admin@example.com
+}
+
+:80 {
+	encode zstd gzip
+
+	header {
+		X-Content-Type-Options "nosniff"
+		Referrer-Policy "strict-origin-when-cross-origin"
+		-Server
+	}
+
+	# تصاویر آپلودی: کش یک‌ساله (نام فایل یکتاست)
+	handle /api/v1/uploads/* {
+		header Cache-Control "public, max-age=31536000, immutable"
+		reverse_proxy api:8000
+	}
+
+	# درخواست‌های API مستقیم به FastAPI می‌روند (بدون واسطهٔ Next.js)
+	handle /api/* {
+		reverse_proxy api:8000
+	}
+
+	# دارایی‌های استاتیک Next.js
+	handle /_next/static/* {
+		header Cache-Control "public, max-age=31536000, immutable"
+		reverse_proxy web:3000
+	}
+
+	# بقیهٔ مسیرها به Next.js
+	handle {
+		reverse_proxy web:3000
+	}
+}
+
+# --- الگوی دامنه‌دار برای آینده (HTTPS خودکار): ---
+# cafe.example.com {
+# 	tls admin@example.com
+# 	header {
+# 		Strict-Transport-Security "max-age=31536000; includeSubDomains"
+# 		X-Content-Type-Options "nosniff"
+# 		Referrer-Policy "strict-origin-when-cross-origin"
+# 		-Server
+# 	}
+# 	handle /api/v1/uploads/* {
+# 		header Cache-Control "public, max-age=31536000, immutable"
+# 		reverse_proxy api:8000
+# 	}
+# 	handle /api/* {
+# 		reverse_proxy api:8000
+# 	}
+# 	handle /_next/static/* {
+# 		header Cache-Control "public, max-age=31536000, immutable"
+# 		reverse_proxy web:3000
+# 	}
+# 	handle {
+# 		reverse_proxy web:3000
+# 	}
+# }
+

@@ -19,7 +19,13 @@ if (pythonArgs.length === 0) {
 }
 
 const pythonPath = requirePython();
-const child = spawn(pythonPath, pythonArgs, { cwd: apiDir, stdio: "inherit" });
+// کنسول پیش‌فرض ویندوز cp1252 است و چاپ پیام‌های فارسی اسکریپت‌ها را
+// با UnicodeEncodeError می‌شکند؛ خروجی/ورودی پایتون را UTF-8 می‌کنیم.
+const child = spawn(pythonPath, pythonArgs, {
+  cwd: apiDir,
+  stdio: "inherit",
+  env: { ...process.env, PYTHONIOENCODING: "utf-8" },
+});
 
 child.once("error", (error) => {
   console.error(`[Cafe] اجرای دستور ممکن نشد: ${error.message}`);

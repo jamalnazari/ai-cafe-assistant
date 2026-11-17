@@ -281,8 +281,8 @@ cp .env.example .env
 #   AI_API_KEY=...
 nano .env
 
-# دامنه را در deploy/Caddyfile جایگزین کنید (و آدرس‌ها را به web:3000 و api:8000 تغییر دهید)
-nano deploy/Caddyfile
+# دامنه را در deploy/Caddyfile.docker جایگزین کنید (آدرس‌ها از قبل web:3000 و api:8000 هستند)
+nano deploy/Caddyfile.docker
 
 docker compose up -d --build
 docker compose ps

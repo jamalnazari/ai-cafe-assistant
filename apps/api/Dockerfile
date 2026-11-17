@@ -1,35 +1,25 @@
-# --- تصویر API (FastAPI) ---
-FROM python:3.12-slim AS base
+FROM python:3.12-slim
 
 ENV PYTHONDONTWRITEBYTECODE=1 \
     PYTHONUNBUFFERED=1 \
-    PIP_NO_CACHE_DIR=1
+    # لاگ‌های فارسی روی کنسول کانتینر نشکنند
+    PYTHONIOENCODING=utf-8
 
 WORKDIR /app
 
-# ابزارهای لازم برای ساخت بسته‌های پایتونی (حذف می‌شوند)
-RUN apt-get update \
-    && apt-get install -y --no-install-recommends build-essential curl \
-    && rm -rf /var/lib/apt/lists/*
-
-COPY requirements.txt .
-RUN pip install --upgrade pip && pip install -r requirements.txt
+COPY requirements.txt ./
+RUN pip install --no-cache-dir -r requirements.txt
 
 COPY . .
 
-# پوشه‌های دادهٔ پایدار (در docker-compose به volume وصل می‌شوند)
-RUN mkdir -p /data/uploads/menu_items /data/uploads/branding /data/backups
-
-ENV DATABASE_URL="sqlite+aiosqlite:////data/cafe.db" \
-    UPLOAD_DIR="/data/uploads/menu_items" \
-    BRANDING_UPLOAD_DIR="/data/uploads/branding" \
-    BACKUP_DIR="/data/backups" \
-    ENVIRONMENT=production
+# کاربر غیر root برای امنیت بیشتر؛ پوشهٔ داده در volume سوار می‌شود.
+RUN useradd --create-home --uid 1000 cafe \
+    && mkdir -p /data/uploads/menu_items /data/uploads/branding /data/backups \
+    && chown -R cafe:cafe /data /app
+USER cafe
 
 EXPOSE 8000
 
-HEALTHCHECK --interval=30s --timeout=5s --start-period=20s --retries=3 \
-    CMD curl -fsS http://127.0.0.1:8000/health || exit 1
-
-# یک worker: SQLite با نوشتن همزمان چند پروسه خوب کنار نمی‌آید.
-CMD ["uvicorn", "main:app", "--host", "0.0.0.0", "--port", "8000", "--workers", "1", "--proxy-headers", "--forwarded-allow-ips", "*"]
+# پیش از بالا آمدن سرویس، جدول‌های دیتابیس تازه ساخته/به‌روز می‌شوند
+# (idempotent است و روی دیتابیس موجود داده‌ای نمی‌سازد).
+CMD ["sh", "-c", "python -m app.db.init_db && exec python -m uvicorn main:app --host 0.0.0.0 --port 8000"]

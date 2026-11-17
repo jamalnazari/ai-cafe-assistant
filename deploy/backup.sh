@@ -1,35 +1,34 @@
 #!/usr/bin/env bash
-# پشتیبان روزانه از دیتابیس و تصاویر (برای cron)
+# پشتیبان‌گیری روزانه کافه‌یار (مسیر systemd):
+#   دیتابیس با API رسمی SQLite (سازگار با WAL) + آرشیو تصاویر آپلودی
 #
-# نصب در cron (هر روز ساعت ۳ بامداد):
+# نصب:
+#   sudo cp deploy/backup.sh /usr/local/bin/cafe-backup
+#   sudo chmod +x /usr/local/bin/cafe-backup
 #   sudo crontab -e
-#   0 3 * * * /srv/ai-cafe-assistant/deploy/backup.sh >> /var/log/cafe-backup.log 2>&1
+#   0 3 * * * /usr/local/bin/cafe-backup >> /var/log/cafe-backup.log 2>&1
+
 set -euo pipefail
 
-APP_DIR="${APP_DIR:-/srv/ai-cafe-assistant}"
-DB_PATH="${DB_PATH:-$APP_DIR/apps/api/cafe.db}"
-DEST="${BACKUP_DIR:-/var/backups/ai-cafe-assistant}"
-KEEP="${BACKUP_KEEP:-14}"
-STAMP="$(date +%Y%m%d-%H%M%S)"
+PROJECT_DIR="${CAFE_PROJECT_DIR:-/srv/ai-cafe-assistant}"
+API_DIR="$PROJECT_DIR/apps/api"
+PYTHON="$API_DIR/.venv/bin/python"
 
-mkdir -p "$DEST"
-
-if [ -f "$DB_PATH" ]; then
-  # sqlite3 .backup امن است حتی وقتی سرویس در حال اجراست.
-  sqlite3 "$DB_PATH" ".backup '$DEST/cafe-$STAMP.db'"
-  echo "[backup] دیتابیس: $DEST/cafe-$STAMP.db"
-else
-  echo "[backup] دیتابیس پیدا نشد: $DB_PATH" >&2
+if [ ! -x "$PYTHON" ]; then
+    echo "پایتون مجازی پروژه پیدا نشد: $PYTHON" >&2
+    exit 1
 fi
 
-UPLOADS="${UPLOADS_DIR:-$APP_DIR/apps/api/uploads}"
-if [ -d "$UPLOADS" ]; then
-  tar -czf "$DEST/uploads-$STAMP.tar.gz" -C "$(dirname "$UPLOADS")" "$(basename "$UPLOADS")"
-  echo "[backup] تصاویر: $DEST/uploads-$STAMP.tar.gz"
+# دیتابیس (BACKUP_DIR و BACKUP_KEEP از .env خوانده می‌شوند)
+cd "$API_DIR"
+"$PYTHON" -m app.db.backup_db
+
+# تصاویر منو و هویت کافه
+UPLOADS_SRC="${UPLOAD_DIR:-/var/lib/ai-cafe-assistant/uploads}"
+BACKUP_DIR="${BACKUP_DIR:-/var/backups/ai-cafe-assistant}"
+if [ -d "$UPLOADS_SRC" ]; then
+    mkdir -p "$BACKUP_DIR"
+    tar czf "$BACKUP_DIR/uploads-$(date +%Y%m%d).tar.gz" -C "$(dirname "$UPLOADS_SRC")" "$(basename "$UPLOADS_SRC")"
+    # آرشیو تصاویر قدیمی‌تر از ۳۰ روز حذف می‌شود
+    find "$BACKUP_DIR" -name 'uploads-*.tar.gz' -mtime +30 -delete
 fi
-
-# نگه‌داشتن N نسخهٔ آخر
-ls -1t "$DEST"/cafe-*.db 2>/dev/null | tail -n +$((KEEP + 1)) | xargs -r rm -f
-ls -1t "$DEST"/uploads-*.tar.gz 2>/dev/null | tail -n +$((KEEP + 1)) | xargs -r rm -f
-
-echo "[backup] پایان: $(date)"

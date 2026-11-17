@@ -1,59 +1,60 @@
-# اجرای کامل پروژه روی VPS با یک فرمان:  docker compose up -d --build
-#
-# پیش از اجرا:
-#   1) فایل .env را از .env.example بسازید و مقادیر SECRET_KEY / ADMIN_PASSWORD /
-#      NEXT_PUBLIC_SITE_URL را تنظیم کنید.
-#   2) دامنه را به IP سرور وصل کنید و در deploy/Caddyfile جایگزین کنید.
 services:
   api:
-    build:
-      context: ./apps/api
+    build: ./apps/api
+    image: cafe-api
     restart: unless-stopped
-    env_file:
-      - ./.env
+    env_file: .env
     environment:
       ENVIRONMENT: production
       TRUST_PROXY_HEADERS: "True"
+      # داده‌ها (دیتابیس، تصاویر، پشتیبان‌ها) روی volume پایدار می‌مانند
+      # تا بازسازی کانتینر چیزی را پاک نکند.
       DATABASE_URL: sqlite+aiosqlite:////data/cafe.db
       UPLOAD_DIR: /data/uploads/menu_items
       BRANDING_UPLOAD_DIR: /data/uploads/branding
       BACKUP_DIR: /data/backups
     volumes:
       - cafe-data:/data
+    ports:
+      # فقط روی loopback برای تست از خود سرور (curl 127.0.0.1:8000/health)
+      - "127.0.0.1:8000:8000"
     healthcheck:
-      test: ["CMD", "curl", "-fsS", "http://127.0.0.1:8000/health"]
+      test:
+        [
+          "CMD",
+          "python",
+          "-c",
+          "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8000/health', timeout=5)",
+        ]
       interval: 30s
-      timeout: 5s
+      timeout: 10s
       retries: 3
       start_period: 20s
 
   web:
-    build:
-      context: ./apps/web
-      args:
-        NEXT_PUBLIC_SITE_URL: ${NEXT_PUBLIC_SITE_URL:-https://cafe.example.com}
+    build: ./apps/web
+    image: cafe-web
     restart: unless-stopped
     environment:
-      NODE_ENV: production
       API_INTERNAL_URL: http://api:8000
-      NEXT_PUBLIC_SITE_URL: ${NEXT_PUBLIC_SITE_URL:-https://cafe.example.com}
     depends_on:
       api:
         condition: service_healthy
 
   caddy:
-    image: caddy:2-alpine
+    image: caddy:2
     restart: unless-stopped
     ports:
       - "80:80"
       - "443:443"
+      - "443:443/udp"
     volumes:
-      - ./deploy/Caddyfile:/etc/caddy/Caddyfile:ro
+      - ./deploy/Caddyfile.docker:/etc/caddy/Caddyfile:ro
       - caddy-data:/data
       - caddy-config:/config
     depends_on:
-      - web
       - api
+      - web
 
 volumes:
   cafe-data:
