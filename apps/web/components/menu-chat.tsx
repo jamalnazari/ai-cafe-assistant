@@ -95,7 +95,7 @@ export default function MenuChat({
           className="mt-3 flex w-full items-center justify-center gap-1.5 rounded-2xl bg-primary-soft px-3 py-2.5 text-[11px] font-bold text-primary transition-colors hover:bg-primary/15"
         >
           <BookOpen className="h-4 w-4" aria-hidden="true" />
-          دیدن منوی کافه
+          دیدن منو
         </button>
       </div>
     </div>
