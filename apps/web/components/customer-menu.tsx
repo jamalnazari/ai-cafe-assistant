@@ -173,7 +173,7 @@ export default function CustomerMenu({
               هنوز آیتمی به منو اضافه نشده
             </h3>
             <p className="mt-2 text-[11px] leading-6 text-ink-soft">
-              صاحب کافه به‌زودی منوی خود را در این صفحه قرار می‌دهد.
+              صاحب {menu.restaurant_label?.trim() || "کافه"} به‌زودی منوی خود را در این صفحه قرار می‌دهد.
             </p>
           </div>
         )}
@@ -280,7 +280,7 @@ export default function CustomerMenu({
         </div>
       </main>
 
-      <div className="fixed inset-x-0 bottom-0 z-30 border-t border-line/60 bg-canvas/90 backdrop-blur-xl">
+      <div className="fixed inset-x-0 bottom-2 z-30 border-t border-line/60 bg-canvas/90 backdrop-blur-xl">
         <div
           className="mx-auto w-full max-w-5xl px-4 pt-2.5"
           style={{ paddingBottom: "max(0.75rem, env(safe-area-inset-bottom))" }}

@@ -23,7 +23,7 @@ export async function generateMetadata({
   if (!menu) {
     return {
       title: "منو در دسترس نیست",
-      description: "این منو در دسترس نیست؛ ممکن است کافه غیرفعال شده باشد.",
+      description: "این منو در دسترس نیست؛ ممکن است این مجموعه غیرفعال شده باشد.",
       robots: { index: false, follow: false },
     };
   }

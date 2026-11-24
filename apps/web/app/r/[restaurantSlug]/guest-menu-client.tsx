@@ -36,8 +36,8 @@ export default function GuestMenuClient({ slug, initialMenu }: GuestMenuClientPr
       });
       if (!response.ok) {
         throw new Error(
-          "این منو در دسترس نیست؛ ممکن است کافه غیرفعال شده باشد. " +
-            "لطفاً از پرسنل کافه کمک بگیرید.",
+          "این منو در دسترس نیست؛ ممکن است این مجموعه غیرفعال شده باشد. " +
+            "لطفاً از پرسنل مجموعه کمک بگیرید.",
         );
       }
       setMenu((await response.json()) as RestaurantMenu);
@@ -84,7 +84,7 @@ export default function GuestMenuClient({ slug, initialMenu }: GuestMenuClientPr
           </button>
           <p className="mt-4 flex items-center justify-center gap-1.5 text-[10px] text-ink-faint">
             <Coffee className="h-3.5 w-3.5" aria-hidden="true" />
-            دستیار هوشمند کافه
+            دستیار هوشمند منو
           </p>
         </div>
       </div>

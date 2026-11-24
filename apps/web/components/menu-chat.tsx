@@ -281,7 +281,7 @@ export default function MenuChat({
                 <div className="min-w-0 max-w-[88%] rounded-2xl rounded-tr-md border border-line bg-surface px-3.5 py-3 shadow-card">
                   <div className="flex items-center gap-2">
                     <p className="text-[11px] font-bold text-ink">
-                      دارم منو را بررسی می‌کنم...
+                      در حال آماده کردن پاسخ...
                     </p>
                     <span
                       className="ms-auto flex items-center gap-1"
@@ -323,7 +323,7 @@ export default function MenuChat({
         )}
       </main>
 
-      <div className="fixed inset-x-0 bottom-0 z-40 px-3 pb-[max(1rem,env(safe-area-inset-bottom))] pt-1">
+      <div className="fixed inset-x-0 bottom-2 z-40 px-3 pb-[max(1rem,env(safe-area-inset-bottom))] pt-1">
         <div className="mx-auto w-full max-w-3xl rounded-3xl border border-line/70 bg-canvas/95 p-2.5 shadow-float backdrop-blur-xl">
           <form onSubmit={handleSubmit} className="flex items-end gap-2">
             <input
@@ -355,7 +355,7 @@ export default function MenuChat({
             </button>
           </form>
           <p className="mt-1.5 text-center text-[9px] text-ink-faint">
-            پاسخ‌ها فقط بر اساس منوی همین کافه است.
+            پاسخ‌ها فقط بر اساس منوی همین مجموعه است.
           </p>
         </div>
       </div>

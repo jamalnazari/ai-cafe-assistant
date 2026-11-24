@@ -144,7 +144,7 @@ export default function ItemDetailModal({
             )}
 
             <p className="border-t border-line/70 pt-3 text-center text-[10px] text-ink-faint">
-              برای ثبت سفارش، شمارهٔ میز یا آیتم را به کارکنان کافه بگویید.
+              برای ثبت سفارش، شمارهٔ میز یا آیتم را به کارکنان مجموعه بگویید.
             </p>
           </div>
         </div>
