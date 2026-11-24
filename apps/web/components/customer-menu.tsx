@@ -152,7 +152,9 @@ export default function CustomerMenu({
       <main className="relative z-10 mx-auto max-w-5xl px-4 pt-5 pb-10">
         <div className="mb-4 flex items-end justify-between gap-3">
           <div>
-            <h2 className="text-base font-black">منوی کافه</h2>
+            <h2 className="text-base font-black">
+              منوی {menu.restaurant_label?.trim() || "کافه"}
+            </h2>
             <p className="mt-0.5 text-[11px] text-ink-faint">
               برای دیدن ترکیبات و جزئیات، روی هر آیتم بزنید
             </p>
