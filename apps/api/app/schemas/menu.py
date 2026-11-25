@@ -49,6 +49,8 @@ class RestaurantMenu(BaseModel):
     city: str | None = None
     cuisine_tags: list[str] = Field(default_factory=list)
     faq: list[FaqItem] = Field(default_factory=list)
+    # تم پیش‌فرض صفحهٔ مشتری که صاحب کافه انتخاب کرده است.
+    restaurant_theme: Literal["amber", "purple", "emerald", "midnight"] | None = None
     categories: list[str] = Field(default_factory=list)
     items: list[MenuItem]
 
@@ -65,6 +67,8 @@ class RestaurantUpdate(ContactFields):
 
     name: str | None = Field(default=None, max_length=100)
     about: str | None = Field(default=None, max_length=MAX_ABOUT_LENGTH)
+    # تم پیش‌فرض صفحهٔ مشتری؛ null یعنی استفاده از تم پیش‌فرض سراسری.
+    default_theme: Literal["amber", "purple", "emerald", "midnight"] | None = None
 
     @field_validator("name")
     @classmethod
@@ -100,6 +104,7 @@ class RestaurantUpdate(ContactFields):
             "city",
             "cuisine_tags",
             "faq",
+            "default_theme",
         }
         if not provided:
             raise ValueError("هیچ فیلدی برای به‌روزرسانی ارسال نشده است.")

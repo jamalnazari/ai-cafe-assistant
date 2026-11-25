@@ -17,6 +17,7 @@ import ItemDetailModal from "@/components/item-detail-modal";
 import ThemeSwitcher from "@/components/theme-switcher";
 import { formatItemPrice, formatNumber } from "@/lib/format";
 import type { MenuItem } from "@/lib/menu-types";
+import type { ThemeId } from "@/lib/theme";
 import type { MenuAssistantState } from "@/lib/use-menu-assistant";
 
 type MenuChatProps = {
@@ -26,6 +27,8 @@ type MenuChatProps = {
   itemCount: number;
   categoryCount: number;
   assistant: MenuAssistantState;
+  /** تم پیش‌فرض انتخابی صاحب کافه برای صفحهٔ مشتری. */
+  defaultTheme?: ThemeId;
   onOpenMenu: () => void;
 };
 
@@ -42,6 +45,7 @@ export default function MenuChat({
   itemCount,
   categoryCount,
   assistant,
+  defaultTheme,
   onOpenMenu,
 }: MenuChatProps) {
   const [draft, setDraft] = useState("");
@@ -162,7 +166,11 @@ export default function MenuChat({
               <BookOpen className="h-4 w-4" aria-hidden="true" />
               منو
             </button>
-            <ThemeSwitcher variant="surface" showLabel={false} />
+            <ThemeSwitcher
+              variant="surface"
+              showLabel={false}
+              defaultTheme={defaultTheme}
+            />
           </div>
         </div>
       </header>

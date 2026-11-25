@@ -39,6 +39,8 @@ export interface RestaurantMenu {
   city?: string | null;
   cuisine_tags?: string[];
   faq?: FaqItem[];
+  /** تم پیش‌فرض صفحهٔ مشتری که صاحب کافه انتخاب می‌کند. */
+  restaurant_theme?: "amber" | "purple" | "emerald" | "midnight" | null;
   categories?: string[];
   items: MenuItem[];
 }

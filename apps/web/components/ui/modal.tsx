@@ -26,7 +26,12 @@ export default function Modal({
 }: ModalProps) {
   const panelRef = useRef<HTMLDivElement | null>(null);
   const onCloseRef = useRef(onClose);
-  onCloseRef.current = onClose;
+
+  // جدیدترین onClose در ref نگه داشته می‌شود تا شنوندهٔ Escape همیشه
+  // نسخهٔ تازه را صدا بزند، بدون این‌که listener در هر رندر بازسازی شود.
+  useEffect(() => {
+    onCloseRef.current = onClose;
+  }, [onClose]);
 
   useEffect(() => {
     if (!open) return;

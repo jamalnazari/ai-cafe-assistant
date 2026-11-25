@@ -101,6 +101,7 @@ class SqlAlchemyMenuRepository:
             price_range=restaurant.price_range,
             city=restaurant.city or "گرگان",
             cuisine_tags=list(restaurant.cuisine_tags or []),
+            restaurant_theme=restaurant.default_theme,  # type: ignore[arg-type]
             faq=[
                 {"question": item["question"], "answer": item["answer"]}
                 for item in (restaurant.faq or [])

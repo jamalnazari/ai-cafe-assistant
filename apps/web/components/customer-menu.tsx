@@ -24,12 +24,15 @@ import MenuCategoryNav from "@/components/menu-category-nav";
 import ThemeSwitcher from "@/components/theme-switcher";
 import { formatItemPrice, formatNumber } from "@/lib/format";
 import type { MenuItem, RestaurantMenu } from "@/lib/menu-types";
+import type { ThemeId } from "@/lib/theme";
 import { useCategoryScrollSpy } from "@/lib/use-category-scroll-spy";
 
 type CustomerMenuProps = {
   menu: RestaurantMenu;
   onBack: () => void;
   onAsk: (question: string) => void;
+  /** تم پیش‌فرض انتخابی صاحب کافه برای صفحهٔ مشتری. */
+  defaultTheme?: ThemeId;
 };
 
 function categoryIcon(categoryName: string) {
@@ -48,6 +51,7 @@ export default function CustomerMenu({
   menu,
   onBack,
   onAsk,
+  defaultTheme,
 }: CustomerMenuProps) {
   const [selectedItem, setSelectedItem] = useState<MenuItem | null>(null);
   const [question, setQuestion] = useState("");
@@ -134,7 +138,7 @@ export default function CustomerMenu({
               {formatNumber(categoryList.length)} دسته‌بندی
             </p>
           </div>
-          <ThemeSwitcher />
+          <ThemeSwitcher defaultTheme={defaultTheme} />
         </div>
       </header>
 

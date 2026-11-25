@@ -277,16 +277,26 @@ cp .env.example .env
 #   SECRET_KEY=<رشتهٔ تصادفی ۴۸ نویسه>
 #   ADMIN_PASSWORD=<رمز قوی>
 #   NEXT_PUBLIC_SITE_URL=https://cafe.example.com
-#   ALLOWED_HOSTS=cafe.example.com
+#   ALLOWED_HOSTS=cafe.example.com,api,web   ← «api,web» برای حالت Docker الزامی است
+#     (صفحه‌های SSR کانتینر web با هدر Host: api:8000 به API می‌زنند؛ نبودشان یعنی 404 صفحهٔ مشتری)
 #   AI_API_KEY=...
+#   اگر فعلاً دامنه ندارید و با IP می‌روید: SESSION_COOKIE_SECURE=False
+#     (وگرنه کوکی ورود روی HTTP ارسال نمی‌شود و login کار نمی‌کند)
 nano .env
 
 # دامنه را در deploy/Caddyfile.docker جایگزین کنید (آدرس‌ها از قبل web:3000 و api:8000 هستند)
+# تا وقتی دامنه ندارید، خط سایت را «:80» بگذارید (الگوی آماده در انتهای همان فایل هست).
 nano deploy/Caddyfile.docker
+
+# اگر دیتابیس آماده دارید، پیش از up آن را در volume بگذارید:
+#   docker volume create ai-cafe-assistant_cafe-data
+#   docker run --rm -v ai-cafe-assistant_cafe-data:/data -v /tmp:/backup alpine sh -c \
+#     'cp /backup/cafe-restore.db /data/cafe.db && chown -R 1000:1000 /data'
 
 docker compose up -d --build
 docker compose ps
-curl -fsS http://127.0.0.1/api/health   # همان /health پشت Caddy
+curl -fsS http://127.0.0.1:8000/health   # مستقیم روی loopback
+curl -fsS -o /dev/null -w "%{http_code}\n" http://127.0.0.1/   # پشت Caddy
 ```
 
 نکات:

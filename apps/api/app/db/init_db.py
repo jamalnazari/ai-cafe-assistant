@@ -280,6 +280,8 @@ async def ensure_schema_columns(conn) -> None:
             "city": "VARCHAR(60)",
             "cuisine_tags": "JSON",
             "faq": "JSON",
+            # تم پیش‌فرض صفحهٔ مشتری به‌انتخاب صاحب کافه
+            "default_theme": "VARCHAR(20)",
         }
         for column, ddl in seo_columns.items():
             if column not in restaurant_columns:

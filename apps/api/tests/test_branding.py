@@ -468,3 +468,31 @@ def test_prompt_describes_menu_when_about_is_empty():
     assert "۱۰." in prompt
     assert "معرفی کوتاه" in prompt
     assert "ساعت کاری یا " in prompt
+
+
+def test_owner_can_set_default_theme_for_customer_page(branding_context):
+    """صاحب کافه تم پیش‌فرض صفحهٔ مشتری را انتخاب می‌کند و در منو منتشر می‌شود."""
+    client, _uploads = branding_context
+    login(client)
+
+    response = client.patch(
+        "/api/v1/restaurants/demo", json={"default_theme": "emerald"}
+    )
+
+    assert response.status_code == 200
+    assert response.json()["default_theme"] == "emerald"
+    assert menu_of(client)["restaurant_theme"] == "emerald"
+
+    # مقدار خارج از فهرست مجاز رد می‌شود.
+    invalid = client.patch(
+        "/api/v1/restaurants/demo", json={"default_theme": "neon"}
+    )
+    assert invalid.status_code == 422
+
+    # null یعنی برگشت به تم پیش‌فرض سراسری.
+    cleared = client.patch(
+        "/api/v1/restaurants/demo", json={"default_theme": None}
+    )
+    assert cleared.status_code == 200
+    assert cleared.json()["default_theme"] is None
+    assert menu_of(client)["restaurant_theme"] is None

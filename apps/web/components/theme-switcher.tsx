@@ -24,6 +24,12 @@ type ThemeSwitcherProps = {
   variant?: "surface" | "onPrimary" | "ghost";
   showLabel?: boolean;
   className?: string;
+  /**
+   * تم پیش‌فرض این صفحه (مثلاً تم انتخابی صاحب کافه برای صفحهٔ مشتری).
+   * برای رندر سمت سرور استفاده می‌شود تا با HTML سرور یکی باشد و خطای
+   * hydration ندهد؛ اگر بازدیدکننده تم ذخیره‌شده داشته باشد، همان اولویت دارد.
+   */
+  defaultTheme?: ThemeId;
 };
 
 const PANEL_WIDTH = 240;
@@ -45,11 +51,12 @@ export default function ThemeSwitcher({
   variant = "surface",
   showLabel = true,
   className,
+  defaultTheme,
 }: ThemeSwitcherProps) {
   const theme = useSyncExternalStore(
     subscribeTheme,
     getThemeSnapshot,
-    getThemeServerSnapshot,
+    () => defaultTheme ?? getThemeServerSnapshot(),
   );
   const [open, setOpen] = useState(false);
   const [position, setPosition] = useState({
@@ -135,17 +142,26 @@ export default function ThemeSwitcher({
         aria-expanded={open}
         aria-label={`انتخاب تم ظاهری؛ تم فعلی ${current.label}`}
         title="تغییر تم ظاهری سایت"
+        // تمِ ذخیره‌شدهٔ مرورگر در زمان SSR معلوم نیست؛ برچسب و aria-label
+        // روی سرور با تم پیش‌فرض رندر می‌شوند و بعد از hydration با تم واقعی
+        // جایگزین می‌شوند. این هشدارِ React فقط برای همین اختلاف است.
+        suppressHydrationWarning
         className={cn(
           "flex h-10 items-center gap-2 rounded-full px-3 text-xs font-bold transition-colors",
           triggerStyles[variant],
         )}
       >
         <Palette className="h-4 w-4" aria-hidden="true" />
-        {showLabel && <span className="hidden sm:inline">{current.label}</span>}
+        {showLabel && (
+          <span className="hidden sm:inline" suppressHydrationWarning>
+            {current.label}
+          </span>
+        )}
         <span
           className="h-3.5 w-3.5 rounded-full ring-2 ring-white/60"
           style={{ backgroundColor: current.swatches[0] }}
           aria-hidden="true"
+          suppressHydrationWarning
         />
       </button>
 

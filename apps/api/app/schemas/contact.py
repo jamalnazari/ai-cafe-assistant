@@ -103,3 +103,4 @@ class RestaurantProfileOut(BaseModel):
     city: str | None = None
     cuisine_tags: list[str] = Field(default_factory=list)
     faq: list[FaqItem] = Field(default_factory=list)
+    default_theme: str | None = None

@@ -4,6 +4,9 @@ services:
     image: cafe-api
     restart: unless-stopped
     env_file: .env
+    # ⚠️ نکتهٔ مهم: در حالت Docker، صفحه‌های سمت سرورِ Next.js به api با هدر
+    # Host: api:8000 درخواست می‌فرستند؛ پس «api,web» باید در ALLOWED_HOSTS
+    # فایل .env باشند وگرنه صفحهٔ مشتری (/r/...) با 404 روبه‌رو می‌شود.
     environment:
       ENVIRONMENT: production
       TRUST_PROXY_HEADERS: "True"

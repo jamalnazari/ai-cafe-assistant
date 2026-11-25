@@ -108,12 +108,16 @@ def test_admin_can_create_cafe_on_legacy_database(tmp_path):
     env = dict(os.environ)
     env["DATABASE_URL"] = f"sqlite+aiosqlite:///{database_path}"
     env["ENVIRONMENT"] = "test"
+    # خروجی فارسی subprocess روی ویندوز نباید با کدپیج کنسول بشکند.
+    env["PYTHONIOENCODING"] = "utf-8"
     completed = subprocess.run(
         [sys.executable, "-c", script],
         cwd=API_DIR,
         env=env,
         capture_output=True,
         text=True,
+        encoding="utf-8",
+        errors="replace",
         timeout=180,
     )
     assert completed.returncode == 0, completed.stderr[-2000:]

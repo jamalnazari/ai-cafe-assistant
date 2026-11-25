@@ -397,6 +397,9 @@ async def update_restaurant(
     if "about" in body.model_fields_set:
         # مقدار خالی (None پس از اعتبارسنجی) یعنی پاک‌کردن توضیحات.
         restaurant.about_text = body.about
+    if "default_theme" in body.model_fields_set:
+        # null یعنی برگشت به تم پیش‌فرض سراسری.
+        restaurant.default_theme = body.default_theme
     apply_contact_fields(restaurant, body)
 
     await db.commit()
@@ -404,6 +407,7 @@ async def update_restaurant(
         message="اطلاعات کافه به‌روزرسانی شد.",
         name=restaurant.name,
         about=restaurant.about_text,
+        default_theme=restaurant.default_theme,
         **contact_fields_payload(restaurant),
     )
 

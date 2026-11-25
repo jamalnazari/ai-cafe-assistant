@@ -1,5 +1,4 @@
 import type { Metadata, Viewport } from "next";
-import Script from "next/script";
 import "@fontsource-variable/vazirmatn";
 import "./globals.css";
 
@@ -40,13 +39,16 @@ export default function RootLayout({ children }: LayoutProps<"/">) {
       lang="fa"
       dir="rtl"
       data-theme="midnight"
+      data-scroll-behavior="smooth"
       className="h-full antialiased"
       suppressHydrationWarning
     >
       <body className="flex min-h-full flex-col">
-        <Script
+        {/* اسکریپتِ تم مستقیم در HTML سرور می‌نشیند (نه next/script) تا
+            قبل از hydration اجرا شود و هشدار script tag را ندهد. */}
+        <script
           id="theme-init"
-          strategy="beforeInteractive"
+          suppressHydrationWarning
           dangerouslySetInnerHTML={{ __html: themeInitScript }}
         />
         {children}

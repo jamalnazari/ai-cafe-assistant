@@ -6,6 +6,7 @@ import { CircleAlert, Coffee, LoaderCircle } from "lucide-react";
 import CustomerMenu from "@/components/customer-menu";
 import MenuChat from "@/components/menu-chat";
 import type { RestaurantMenu } from "@/lib/menu-types";
+import type { ThemeId } from "@/lib/theme";
 import { useMenuAssistant } from "@/lib/use-menu-assistant";
 
 type CustomerView = "chat" | "menu";
@@ -13,13 +14,19 @@ type CustomerView = "chat" | "menu";
 type GuestMenuClientProps = {
   slug: string;
   initialMenu: RestaurantMenu;
+  /** تم پیش‌فرض انتخابی صاحب کافه برای این صفحه. */
+  defaultTheme?: ThemeId;
 };
 
 /**
  * رابط مشتری (چت دستیار و منو). محتوای اولیه روی سرور خوانده می‌شود تا
  * صفحه برای موتورهای جستجو کامل باشد؛ فقط «تلاش دوباره» دوباره درخواست می‌فرستد.
  */
-export default function GuestMenuClient({ slug, initialMenu }: GuestMenuClientProps) {
+export default function GuestMenuClient({
+  slug,
+  initialMenu,
+  defaultTheme,
+}: GuestMenuClientProps) {
   const [menu, setMenu] = useState<RestaurantMenu | null>(initialMenu);
   const [error, setError] = useState<string | null>(null);
   const [refreshing, setRefreshing] = useState(false);
@@ -96,6 +103,7 @@ export default function GuestMenuClient({ slug, initialMenu }: GuestMenuClientPr
       <CustomerMenu
         menu={menu}
         onBack={() => setView("chat")}
+        defaultTheme={defaultTheme}
         onAsk={(question) => {
           setView("chat");
           void assistant.ask(question);
@@ -112,6 +120,7 @@ export default function GuestMenuClient({ slug, initialMenu }: GuestMenuClientPr
       itemCount={menu.items.length}
       categoryCount={categoryCount}
       assistant={assistant}
+      defaultTheme={defaultTheme}
       onOpenMenu={() => setView("menu")}
     />
   );

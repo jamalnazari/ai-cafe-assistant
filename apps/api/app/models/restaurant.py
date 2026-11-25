@@ -33,6 +33,9 @@ class RestaurantModel(Base):
     cuisine_tags: Mapped[list[str] | None] = mapped_column(JSON, nullable=True)
     # پرسش‌های پرتکرار: [{"question": "...", "answer": "..."}]
     faq: Mapped[list[dict] | None] = mapped_column(JSON, nullable=True)
+    # تم پیش‌فرض صفحهٔ مشتری که صاحب کافه انتخاب می‌کند
+    # (amber/purple/emerald/midnight)؛ خالی یعنی تم پیش‌فرض سراسری.
+    default_theme: Mapped[str | None] = mapped_column(String(20), nullable=True)
     is_active: Mapped[bool] = mapped_column(Boolean, default=True)
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True),

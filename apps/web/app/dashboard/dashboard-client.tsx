@@ -17,6 +17,7 @@ import {
   Info,
   LoaderCircle,
   LogOut,
+  Palette,
   Pencil,
   Plus,
   Printer,
@@ -40,6 +41,7 @@ import {
   formatNumber,
   restaurantInitial,
 } from "@/lib/format";
+import { DEFAULT_THEME, THEMES, type ThemeId } from "@/lib/theme";
 import { useCategoryScrollSpy } from "@/lib/use-category-scroll-spy";
 import type {
   BrandingKind,
@@ -188,6 +190,11 @@ export default function DashboardClient({
   );
   const lastSyncedBrandName = useRef<string | null>(null);
 
+  // --- تم پیش‌فرض صفحهٔ مشتری (انتخاب صاحب کافه) ---
+  const [themeDraft, setThemeDraft] = useState<ThemeId | null>(null);
+  const [savingTheme, setSavingTheme] = useState(false);
+  const [themeError, setThemeError] = useState<string | null>(null);
+
   // --- دربارهٔ مجموعه (توضیحاتی که دستیار هوشمند هم می‌خواند) ---
   const [aboutText, setAboutText] = useState("");
   const [savingAbout, setSavingAbout] = useState(false);
@@ -210,6 +217,10 @@ export default function DashboardClient({
   const setContact = (
     updater: (current: CafeContact) => CafeContact,
   ) => setContactDraft(updater(contact));
+
+  /** تم انتخابی صاحب کافه؛ اگر ثبت نشده باشد، تم پیش‌فرض سراسری نمایش می‌یابد. */
+  const theme: ThemeId = themeDraft ?? menu?.restaurant_theme ?? DEFAULT_THEME;
+  const savedTheme: ThemeId = menu?.restaurant_theme ?? DEFAULT_THEME;
 
   const categoryNames = useMemo(() => {
     if (!menu) return [];
@@ -361,6 +372,38 @@ export default function DashboardClient({
       );
     } finally {
       setSavingAbout(false);
+    }
+  };
+
+  const saveTheme = async () => {
+    if (savingTheme || theme === savedTheme) return;
+
+    setSavingTheme(true);
+    setThemeError(null);
+    try {
+      const response = await fetch(`/api/v1/restaurants/${restaurantSlug}`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ default_theme: theme }),
+        credentials: "same-origin",
+      });
+      if (handleExpiredSession(response)) return;
+      if (!response.ok) {
+        throw new Error(
+          await getResponseError(response, "ذخیرهٔ تم پیش‌فرض ناموفق بود."),
+        );
+      }
+      setThemeDraft(theme);
+      await fetchMenu();
+      push("تم پیش‌فرض صفحهٔ مشتری ذخیره شد.");
+    } catch (error) {
+      setThemeError(
+        error instanceof Error
+          ? error.message
+          : "ذخیرهٔ تم پیش‌فرض ناموفق بود.",
+      );
+    } finally {
+      setSavingTheme(false);
     }
   };
 
@@ -1540,6 +1583,119 @@ export default function DashboardClient({
                     className="rounded-xl border border-danger/25 bg-danger-soft px-2.5 py-2 text-[10px] font-bold text-danger"
                   >
                     {brandError}
+                  </p>
+                )}
+              </div>
+            </section>
+
+            <section className="rounded-3xl border border-line bg-surface shadow-card">
+              <div className="flex items-center gap-2.5 border-b border-line/60 px-4 py-3.5">
+                <span className="grid h-8 w-8 place-items-center rounded-xl bg-primary-soft text-primary">
+                  <Palette className="h-4 w-4" aria-hidden="true" />
+                </span>
+                <div className="min-w-0 flex-1">
+                  <h3 className="text-sm font-black">تم پیش‌فرض صفحهٔ مشتری</h3>
+                  <p className="text-[10px] text-ink-faint">
+                    مشتری‌ها وقتی خودشان تمی انتخاب نکرده‌اند، صفحه را با این تم
+                    می‌بینند
+                  </p>
+                </div>
+              </div>
+
+              <div className="space-y-3 p-4">
+                <div className="grid grid-cols-2 gap-2">
+                  {THEMES.map((option) => {
+                    const selected = theme === option.id;
+                    return (
+                      <button
+                        key={option.id}
+                        type="button"
+                        onClick={() => {
+                          setThemeDraft(option.id);
+                          setThemeError(null);
+                        }}
+                        disabled={savingTheme}
+                        aria-pressed={selected}
+                        className={cn(
+                          "flex items-center gap-2 rounded-2xl border px-2.5 py-2 text-right transition-colors disabled:opacity-60",
+                          selected
+                            ? "border-primary bg-primary-soft text-primary"
+                            : "border-line bg-surface-muted text-ink-soft hover:border-primary/40",
+                        )}
+                      >
+                        <span
+                          className="flex h-7 w-7 shrink-0 items-center justify-center gap-0.5 overflow-hidden rounded-lg border border-line"
+                          style={{ backgroundColor: option.swatches[1] }}
+                          aria-hidden="true"
+                        >
+                          <span
+                            className="h-3 w-1 rounded-full"
+                            style={{ backgroundColor: option.swatches[0] }}
+                          />
+                          <span
+                            className="h-2 w-1 rounded-full"
+                            style={{ backgroundColor: option.swatches[2] }}
+                          />
+                        </span>
+                        <span className="min-w-0 flex-1">
+                          <span className="block text-[11px] font-bold">
+                            {option.label}
+                          </span>
+                          <span className="block text-[9px] text-ink-faint">
+                            {option.hint}
+                          </span>
+                        </span>
+                        {selected && (
+                          <Check
+                            className="h-3.5 w-3.5 shrink-0"
+                            aria-hidden="true"
+                          />
+                        )}
+                      </button>
+                    );
+                  })}
+                </div>
+
+                <div className="flex items-center gap-1.5">
+                  <button
+                    type="button"
+                    onClick={() => void saveTheme()}
+                    disabled={savingTheme || theme === savedTheme}
+                    className="inline-flex flex-1 items-center justify-center gap-1.5 rounded-xl bg-primary px-3 py-2.5 text-[10px] font-bold text-on-primary transition-colors hover:bg-primary-strong disabled:cursor-not-allowed disabled:opacity-50"
+                  >
+                    {savingTheme ? (
+                      <LoaderCircle
+                        className="h-3.5 w-3.5 animate-spin"
+                        aria-hidden="true"
+                      />
+                    ) : (
+                      <Check className="h-3.5 w-3.5" aria-hidden="true" />
+                    )}
+                    ذخیرهٔ تم پیش‌فرض
+                  </button>
+                  {theme !== savedTheme && (
+                    <button
+                      type="button"
+                      onClick={() => setThemeDraft(null)}
+                      disabled={savingTheme}
+                      className="rounded-xl border border-line bg-surface px-3 py-2.5 text-[10px] font-bold text-ink-soft transition-colors hover:bg-surface-muted disabled:opacity-50"
+                    >
+                      انصراف
+                    </button>
+                  )}
+                </div>
+
+                <p className="text-[10px] leading-5 text-ink-faint">
+                  این تم فقط «پیش‌فرض» است؛ مشتری می‌تواند با دکمهٔ تم در صفحهٔ
+                  خودش آن را عوض کند.
+                </p>
+
+                {themeError && (
+                  <p
+                    role="alert"
+                    className="rounded-xl border border-danger/25 bg-danger-soft px-2.5 py-2 text-[10px] font-bold text-danger"
+                  >
+                    {themeError}
                   </p>
                 )}
               </div>
