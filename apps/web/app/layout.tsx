@@ -14,7 +14,7 @@ export const metadata: Metadata = {
 };
 
 export const viewport: Viewport = {
-  themeColor: "#fbf6ef",
+  themeColor: "#0c0a16",
   width: "device-width",
   initialScale: 1,
 };
@@ -24,11 +24,10 @@ const themeInitScript = `
   try {
     var allowed = ["amber", "purple", "emerald", "midnight"];
     var stored = window.localStorage.getItem("cafe-theme");
-    if (stored && allowed.indexOf(stored) !== -1) {
-      document.documentElement.dataset.theme = stored;
-      document.documentElement.style.colorScheme =
-        stored === "midnight" ? "dark" : "light";
-    }
+    var theme = stored && allowed.indexOf(stored) !== -1 ? stored : "midnight";
+    document.documentElement.dataset.theme = theme;
+    document.documentElement.style.colorScheme =
+      theme === "midnight" ? "dark" : "light";
   } catch (error) {
     /* دسترسی به حافظه محلی ممکن نیست؛ تم پیش‌فرض استفاده می‌شود. */
   }
@@ -40,6 +39,7 @@ export default function RootLayout({ children }: LayoutProps<"/">) {
     <html
       lang="fa"
       dir="rtl"
+      data-theme="midnight"
       className="h-full antialiased"
       suppressHydrationWarning
     >

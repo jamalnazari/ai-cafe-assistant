@@ -39,7 +39,7 @@ export const THEMES: ThemeOption[] = [
   },
 ];
 
-export const DEFAULT_THEME: ThemeId = "amber";
+export const DEFAULT_THEME: ThemeId = "midnight";
 export const THEME_STORAGE_KEY = "cafe-theme";
 
 export function isThemeId(value: unknown): value is ThemeId {
