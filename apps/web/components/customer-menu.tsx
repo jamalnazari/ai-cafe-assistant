@@ -22,7 +22,6 @@ import {
 import ItemDetailModal from "@/components/item-detail-modal";
 import GuestMenuDrawer from "@/components/guest-menu-drawer";
 import MenuCategoryNav from "@/components/menu-category-nav";
-import ThemeSwitcher from "@/components/theme-switcher";
 import { formatItemPrice, formatNumber } from "@/lib/format";
 import type { MenuItem, RestaurantMenu } from "@/lib/menu-types";
 import type { ThemeId } from "@/lib/theme";
@@ -146,7 +145,6 @@ export default function CustomerMenu({
             defaultTheme={defaultTheme}
             onOpenMenu={() => window.scrollTo({ top: 0, behavior: "smooth" })}
           />
-          <ThemeSwitcher defaultTheme={defaultTheme} />
         </div>
       </header>
 

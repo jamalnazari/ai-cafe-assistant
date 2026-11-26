@@ -15,7 +15,6 @@ import {
 
 import ItemDetailModal from "@/components/item-detail-modal";
 import GuestMenuDrawer from "@/components/guest-menu-drawer";
-import ThemeSwitcher from "@/components/theme-switcher";
 import { formatItemPrice, formatNumber } from "@/lib/format";
 import type { MenuItem } from "@/lib/menu-types";
 import type { ThemeId } from "@/lib/theme";
@@ -170,19 +169,6 @@ export default function MenuChat({
               instagram={instagram}
               defaultTheme={defaultTheme}
               onOpenMenu={onOpenMenu}
-            />
-            <button
-              type="button"
-              onClick={onOpenMenu}
-              className="inline-flex h-10 items-center gap-1.5 rounded-full bg-primary px-3.5 text-[11px] font-bold text-on-primary shadow-md shadow-primary/20 transition-colors hover:bg-primary-strong"
-            >
-              <BookOpen className="h-4 w-4" aria-hidden="true" />
-              منو
-            </button>
-            <ThemeSwitcher
-              variant="surface"
-              showLabel={false}
-              defaultTheme={defaultTheme}
             />
           </div>
         </div>
