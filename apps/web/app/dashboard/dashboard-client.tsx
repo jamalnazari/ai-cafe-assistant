@@ -208,8 +208,11 @@ export default function DashboardClient({
   const [savingContact, setSavingContact] = useState(false);
   const [contactError, setContactError] = useState<string | null>(null);
 
-  // در موبایل فقط یکی از دو بخش «منو» یا «مدیریت کافه» نمایش داده می‌شود.
-  const [mobilePanel, setMobilePanel] = useState<"menu" | "settings">("menu");
+  // چیدمان استاندارد پنل: تب‌های همیشه‌نمایان (منو / هویت / تماس / QR)
+  // که در دسکتاپ و موبایل یکسان عمل می‌کنند.
+  const [activeTab, setActiveTab] = useState<"menu" | "brand" | "contact" | "qr">(
+    "menu",
+  );
 
   const items = useMemo(() => menu?.items ?? [], [menu]);
 
@@ -1101,56 +1104,53 @@ export default function DashboardClient({
           />
         </div>
 
-        {/* در موبایل فقط یک بخش در هر لحظه؛ در دسکتاپ هر دو ستون */}
-        <div className="sticky top-16 z-30 rounded-2xl border border-line/60 bg-canvas/95 p-1.5 backdrop-blur-xl lg:hidden">
-          <div
-            role="tablist"
-            aria-label="بخش‌های پنل"
-            className="grid grid-cols-2 gap-1 rounded-2xl bg-surface-muted p-1"
-          >
-            <button
-              type="button"
-              role="tab"
-              aria-selected={mobilePanel === "menu"}
-              onClick={() => setMobilePanel("menu")}
-              className={cn(
-                "inline-flex items-center justify-center gap-1.5 rounded-xl px-3 py-2.5 text-[11px] font-bold transition-colors",
-                mobilePanel === "menu"
-                  ? "bg-surface text-primary shadow-sm"
-                  : "text-ink-soft",
-              )}
-            >
-              <UtensilsCrossed className="h-4 w-4" aria-hidden="true" />
-              منو
-              <span className="rounded-full bg-primary-soft px-1.5 py-0.5 text-[9px] font-black text-primary tabular-nums">
-                {formatNumber(items.length)}
-              </span>
-            </button>
-            <button
-              type="button"
-              role="tab"
-              aria-selected={mobilePanel === "settings"}
-              onClick={() => setMobilePanel("settings")}
-              className={cn(
-                "inline-flex items-center justify-center gap-1.5 rounded-xl px-3 py-2.5 text-[11px] font-bold transition-colors",
-                mobilePanel === "settings"
-                  ? "bg-surface text-primary shadow-sm"
-                  : "text-ink-soft",
-              )}
-            >
-              <Store className="h-4 w-4" aria-hidden="true" />
-              مدیریت کافه
-            </button>
-          </div>
-        </div>
+        {/* ناوبری استاندارد پنل: هر لحظه فقط یک بخش */}
+        <nav
+          role="tablist"
+          aria-label="بخش‌های پنل"
+          className="sticky top-16 z-30 flex gap-1 overflow-x-auto rounded-2xl border border-line/60 bg-canvas/95 p-1.5 backdrop-blur-xl"
+        >
+          {(
+            [
+              { id: "menu", label: "منو", icon: UtensilsCrossed, badge: formatNumber(items.length) },
+              { id: "brand", label: "هویت و ظاهر", icon: Palette, badge: null },
+              { id: "contact", label: "تماس و معرفی", icon: Store, badge: null },
+              { id: "qr", label: "کد QR", icon: QrCode, badge: null },
+            ] as const
+          ).map((tab) => {
+            const active = activeTab === tab.id;
+            return (
+              <button
+                key={tab.id}
+                type="button"
+                role="tab"
+                aria-selected={active}
+                onClick={() => setActiveTab(tab.id)}
+                className={cn(
+                  "inline-flex shrink-0 items-center gap-1.5 rounded-xl px-3.5 py-2.5 text-[11px] font-bold transition-colors",
+                  active
+                    ? "bg-surface text-primary shadow-sm"
+                    : "text-ink-soft hover:text-ink",
+                )}
+              >
+                <tab.icon className="h-4 w-4" aria-hidden="true" />
+                {tab.label}
+                {tab.badge && (
+                  <span className="rounded-full bg-primary-soft px-1.5 py-0.5 text-[9px] font-black text-primary tabular-nums">
+                    {tab.badge}
+                  </span>
+                )}
+              </button>
+            );
+          })}
+        </nav>
 
-        <div className="grid gap-5 lg:grid-cols-[minmax(0,1fr)_21rem] lg:items-start">
-          <section
-            className={cn(
-              "order-2 min-w-0 overflow-visible rounded-3xl border border-line bg-surface shadow-card lg:order-1",
-              mobilePanel !== "menu" && "hidden lg:block",
-            )}
-          >
+        <section
+          className={cn(
+            "min-w-0 overflow-visible rounded-3xl border border-line bg-surface shadow-card",
+            activeTab !== "menu" && "hidden",
+          )}
+        >
             <div className="flex items-center justify-between gap-3 px-4 pb-3 pt-4 sm:px-5">
               <div className="min-w-0">
                 <h3 className="text-sm font-black">آیتم‌های منو</h3>
@@ -1372,13 +1372,13 @@ export default function DashboardClient({
             </div>
           </section>
 
-          <aside
-            className={cn(
-              "order-1 min-w-0 space-y-4 lg:order-2 lg:sticky lg:top-20",
-              mobilePanel !== "settings" && "hidden lg:block",
-            )}
-          >
-            <section className="rounded-3xl border border-line bg-surface shadow-card">
+          <aside className="min-w-0 space-y-4">
+            <section
+              className={cn(
+                "rounded-3xl border border-line bg-surface shadow-card",
+                activeTab !== "brand" && "hidden",
+              )}
+            >
               <div className="flex items-center gap-2.5 border-b border-line/60 px-4 py-3.5">
                 <span className="grid h-8 w-8 place-items-center rounded-xl bg-primary-soft text-primary">
                   <Store className="h-4 w-4" aria-hidden="true" />
@@ -1588,7 +1588,12 @@ export default function DashboardClient({
               </div>
             </section>
 
-            <section className="rounded-3xl border border-line bg-surface shadow-card">
+            <section
+              className={cn(
+                "rounded-3xl border border-line bg-surface shadow-card",
+                activeTab !== "brand" && "hidden",
+              )}
+            >
               <div className="flex items-center gap-2.5 border-b border-line/60 px-4 py-3.5">
                 <span className="grid h-8 w-8 place-items-center rounded-xl bg-primary-soft text-primary">
                   <Palette className="h-4 w-4" aria-hidden="true" />
@@ -1701,7 +1706,12 @@ export default function DashboardClient({
               </div>
             </section>
 
-            <section className="rounded-3xl border border-line bg-surface shadow-card">
+            <section
+              className={cn(
+                "rounded-3xl border border-line bg-surface shadow-card",
+                activeTab !== "contact" && "hidden",
+              )}
+            >
               <div className="flex items-center gap-2.5 border-b border-line/60 px-4 py-3.5">
                 <span className="grid h-8 w-8 place-items-center rounded-xl bg-primary-soft text-primary">
                   <Store className="h-4 w-4" aria-hidden="true" />
@@ -1858,7 +1868,12 @@ export default function DashboardClient({
               </form>
             </section>
 
-            <section className="rounded-3xl border border-line bg-surface shadow-card">
+            <section
+              className={cn(
+                "rounded-3xl border border-line bg-surface shadow-card",
+                activeTab !== "contact" && "hidden",
+              )}
+            >
               <div className="flex items-center gap-2.5 border-b border-line/60 px-4 py-3.5">
                 <span className="grid h-8 w-8 place-items-center rounded-xl bg-primary-soft text-primary">
                   <Info className="h-4 w-4" aria-hidden="true" />
@@ -1949,7 +1964,12 @@ export default function DashboardClient({
               </form>
             </section>
 
-            <section className="rounded-3xl border border-line bg-surface shadow-card">
+            <section
+              className={cn(
+                "rounded-3xl border border-line bg-surface shadow-card",
+                activeTab !== "menu" && "hidden",
+              )}
+            >
               <div className="flex items-center gap-2.5 border-b border-line/60 px-4 py-3.5">
                 <span className="grid h-8 w-8 place-items-center rounded-xl bg-primary-soft text-primary">
                   <Tags className="h-4 w-4" aria-hidden="true" />
@@ -2044,7 +2064,12 @@ export default function DashboardClient({
               </div>
             </section>
 
-            <section className="rounded-3xl border border-line bg-surface shadow-card">
+            <section
+              className={cn(
+                "rounded-3xl border border-line bg-surface shadow-card",
+                activeTab !== "qr" && "hidden",
+              )}
+            >
               <div className="flex items-center gap-2.5 border-b border-line/60 px-4 py-3.5">
                 <span className="grid h-8 w-8 place-items-center rounded-xl bg-primary-soft text-primary">
                   <QrCode className="h-4 w-4" aria-hidden="true" />
@@ -2091,7 +2116,6 @@ export default function DashboardClient({
               </div>
             </section>
           </aside>
-        </div>
       </main>
 
       {/* --- فرم افزودن یا ویرایش آیتم --- */}
