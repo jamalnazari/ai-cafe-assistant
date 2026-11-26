@@ -118,14 +118,14 @@ export default function GuestMenuDrawer({
       </button>
 
       {open && (
-        <div className="fixed inset-0 z-[90]" role="dialog" aria-modal="true">
+        <div className="fixed inset-0 z-[200]" role="dialog" aria-modal="true">
           <button
             type="button"
             aria-label="بستن فهرست"
             onClick={close}
             className="absolute inset-0 h-full w-full animate-fade cursor-default bg-black/45 backdrop-blur-sm"
           />
-          <div className="animate-drawer absolute inset-y-0 right-0 flex w-72 max-w-[85vw] flex-col border-l border-line bg-canvas shadow-float">
+          <div className="animate-drawer absolute inset-y-0 right-0 z-10 flex w-72 max-w-[85vw] flex-col border-l border-line bg-canvas shadow-float">
             <div className="flex items-center justify-between border-b border-line/60 px-4 py-3.5">
               <p className="text-sm font-black">فهرست</p>
               <button
