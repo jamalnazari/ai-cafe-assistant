@@ -20,6 +20,7 @@ import {
 } from "lucide-react";
 
 import ItemDetailModal from "@/components/item-detail-modal";
+import GuestMenuDrawer from "@/components/guest-menu-drawer";
 import MenuCategoryNav from "@/components/menu-category-nav";
 import ThemeSwitcher from "@/components/theme-switcher";
 import { formatItemPrice, formatNumber } from "@/lib/format";
@@ -138,6 +139,13 @@ export default function CustomerMenu({
               {formatNumber(categoryList.length)} دسته‌بندی
             </p>
           </div>
+          <GuestMenuDrawer
+            restaurantName={menu.restaurant_name}
+            phone={menu.restaurant_phone}
+            instagram={menu.restaurant_instagram}
+            defaultTheme={defaultTheme}
+            onOpenMenu={() => window.scrollTo({ top: 0, behavior: "smooth" })}
+          />
           <ThemeSwitcher defaultTheme={defaultTheme} />
         </div>
       </header>

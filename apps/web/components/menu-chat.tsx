@@ -14,6 +14,7 @@ import {
 } from "lucide-react";
 
 import ItemDetailModal from "@/components/item-detail-modal";
+import GuestMenuDrawer from "@/components/guest-menu-drawer";
 import ThemeSwitcher from "@/components/theme-switcher";
 import { formatItemPrice, formatNumber } from "@/lib/format";
 import type { MenuItem } from "@/lib/menu-types";
@@ -29,6 +30,9 @@ type MenuChatProps = {
   assistant: MenuAssistantState;
   /** تم پیش‌فرض انتخابی صاحب کافه برای صفحهٔ مشتری. */
   defaultTheme?: ThemeId;
+  /** شماره تماس و اینستاگرام مجموعه برای بخش «مجموعه ما»ی کشو. */
+  phone?: string | null;
+  instagram?: string | null;
   onOpenMenu: () => void;
 };
 
@@ -46,6 +50,8 @@ export default function MenuChat({
   categoryCount,
   assistant,
   defaultTheme,
+  phone,
+  instagram,
   onOpenMenu,
 }: MenuChatProps) {
   const [draft, setDraft] = useState("");
@@ -158,6 +164,13 @@ export default function MenuChat({
           </div>
 
           <div className="flex shrink-0 items-center gap-1.5">
+            <GuestMenuDrawer
+              restaurantName={restaurantName}
+              phone={phone}
+              instagram={instagram}
+              defaultTheme={defaultTheme}
+              onOpenMenu={onOpenMenu}
+            />
             <button
               type="button"
               onClick={onOpenMenu}

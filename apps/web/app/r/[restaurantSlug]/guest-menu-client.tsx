@@ -121,6 +121,8 @@ export default function GuestMenuClient({
       categoryCount={categoryCount}
       assistant={assistant}
       defaultTheme={defaultTheme}
+      phone={menu.restaurant_phone ?? null}
+      instagram={menu.restaurant_instagram ?? null}
       onOpenMenu={() => setView("menu")}
     />
   );

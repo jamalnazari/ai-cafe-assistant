@@ -97,6 +97,7 @@ class SqlAlchemyMenuRepository:
             restaurant_about=restaurant.about_text,
             restaurant_address=restaurant.address,
             restaurant_phone=restaurant.phone,
+            restaurant_instagram=restaurant.instagram,
             opening_hours=restaurant.opening_hours,
             price_range=restaurant.price_range,
             city=restaurant.city or "گرگان",

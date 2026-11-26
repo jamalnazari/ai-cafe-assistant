@@ -275,6 +275,8 @@ async def ensure_schema_columns(conn) -> None:
         seo_columns = {
             "address": "VARCHAR(255)",
             "phone": "VARCHAR(30)",
+            # شناسهٔ اینستاگرام برای نمایش در کشوی صفحهٔ مشتری
+            "instagram": "VARCHAR(30)",
             "opening_hours": "VARCHAR(255)",
             "price_range": "VARCHAR(40)",
             "city": "VARCHAR(60)",

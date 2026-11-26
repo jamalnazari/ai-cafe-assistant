@@ -26,6 +26,8 @@ class RestaurantModel(Base):
     # ساخته می‌شود تا کافه در جست‌وجوی «... در گرگان» دیده شود.
     address: Mapped[str | None] = mapped_column(String(255), nullable=True)
     phone: Mapped[str | None] = mapped_column(String(30), nullable=True)
+    # شناسهٔ اینستاگرام بدون @ (مثلاً royal.cafe) برای نمایش در صفحهٔ مشتری
+    instagram: Mapped[str | None] = mapped_column(String(30), nullable=True)
     opening_hours: Mapped[str | None] = mapped_column(String(255), nullable=True)
     price_range: Mapped[str | None] = mapped_column(String(40), nullable=True)
     city: Mapped[str | None] = mapped_column(String(60), nullable=True, default="گرگان")

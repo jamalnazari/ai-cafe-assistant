@@ -23,6 +23,8 @@ export interface RestaurantMenu {
   // اطلاعات تماس و سئوی محلی
   restaurant_address?: string | null;
   restaurant_phone?: string | null;
+  /** شناسهٔ اینستاگرام مجموعه بدون @؛ در کشوی صفحهٔ مشتری نمایش داده می‌شود. */
+  restaurant_instagram?: string | null;
   opening_hours?: string | null;
   price_range?: string | null;
   city?: string | null;

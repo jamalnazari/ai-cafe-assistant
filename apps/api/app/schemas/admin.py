@@ -147,6 +147,7 @@ class RestaurantAdminOut(BaseModel):
     # اطلاعات سئوی محلی
     address: str | None = None
     phone: str | None = None
+    instagram: str | None = None
     opening_hours: str | None = None
     price_range: str | None = None
     city: str | None = None

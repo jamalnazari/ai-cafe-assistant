@@ -44,6 +44,8 @@ class RestaurantMenu(BaseModel):
     # اطلاعات تماس و سئوی محلی (صفحهٔ عمومی، نقشه و دادهٔ ساخت‌یافته)
     restaurant_address: str | None = None
     restaurant_phone: str | None = None
+    # شناسهٔ اینستاگرام مجموعه بدون @؛ در کشوی «مجموعه ما» نمایش داده می‌شود.
+    restaurant_instagram: str | None = None
     opening_hours: str | None = None
     price_range: str | None = None
     city: str | None = None
@@ -99,6 +101,7 @@ class RestaurantUpdate(ContactFields):
             "about",
             "address",
             "phone",
+            "instagram",
             "opening_hours",
             "price_range",
             "city",

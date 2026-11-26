@@ -13,6 +13,7 @@ import {
   ExternalLink,
   Flame,
   Image as ImageIcon,
+  ImageOff,
   ImagePlus,
   Info,
   LoaderCircle,
@@ -53,6 +54,7 @@ type CafeContact = {
   city: string;
   address: string;
   phone: string;
+  instagram: string;
   opening_hours: string;
   price_range: string;
   cuisine_tags: string;
@@ -63,6 +65,7 @@ const EMPTY_CONTACT: CafeContact = {
   city: "",
   address: "",
   phone: "",
+  instagram: "",
   opening_hours: "",
   price_range: "",
   cuisine_tags: "",
@@ -76,6 +79,7 @@ function contactFromMenu(menu: RestaurantMenu | null): CafeContact {
     city: menu.city ?? "",
     address: menu.restaurant_address ?? "",
     phone: menu.restaurant_phone ?? "",
+    instagram: menu.restaurant_instagram ?? "",
     opening_hours: menu.opening_hours ?? "",
     price_range: menu.price_range ?? "",
     cuisine_tags: (menu.cuisine_tags ?? []).join("، "),
@@ -440,6 +444,9 @@ export default function DashboardClient({
           city: contact.city.trim() || null,
           address: contact.address.trim() || null,
           phone: contact.phone.trim() || null,
+          instagram: contact.instagram.trim()
+            ? contact.instagram.trim().replace(/^@/, "")
+            : null,
           opening_hours: contact.opening_hours.trim() || null,
           price_range: contact.price_range.trim() || null,
           cuisine_tags: tags,
@@ -804,6 +811,32 @@ export default function DashboardClient({
     } catch (error) {
       push(
         error instanceof Error ? error.message : "بارگذاری تصویر ناموفق بود.",
+        "error",
+      );
+    } finally {
+      setUploadingItemKey(null);
+    }
+  };
+
+  const handleImageDelete = async (itemKey: string) => {
+    if (uploadingItemKey) return;
+    setUploadingItemKey(itemKey);
+    try {
+      const response = await fetch(
+        `/api/v1/restaurants/${restaurantSlug}/items/${encodeURIComponent(itemKey)}/image`,
+        { method: "DELETE", credentials: "same-origin" },
+      );
+      if (handleExpiredSession(response)) return;
+      if (!response.ok) {
+        throw new Error(
+          await getResponseError(response, "حذف تصویر ناموفق بود."),
+        );
+      }
+      await fetchMenu();
+      push("تصویر آیتم حذف شد.");
+    } catch (error) {
+      push(
+        error instanceof Error ? error.message : "حذف تصویر ناموفق بود.",
         "error",
       );
     } finally {
@@ -1342,6 +1375,26 @@ export default function DashboardClient({
                                 }}
                               />
                             </label>
+                            {item.image_url && (
+                              <button
+                                type="button"
+                                onClick={() => void handleImageDelete(item.id)}
+                                aria-label={`حذف تصویر ${item.name}`}
+                                title="حذف تصویر"
+                                disabled={uploadingItemKey === item.id}
+                                className={cn(
+                                  "inline-flex items-center gap-1 rounded-xl px-2 py-2 text-[10px] font-bold text-ink-soft transition-colors hover:bg-danger-soft hover:text-danger disabled:opacity-50",
+                                  uploadingItemKey === item.id &&
+                                    "pointer-events-none opacity-50",
+                                )}
+                              >
+                                <ImageOff
+                                  className="h-3.5 w-3.5"
+                                  aria-hidden="true"
+                                />
+                                <span className="hidden sm:inline">حذف تصویر</span>
+                              </button>
+                            )}
                             <button
                               type="button"
                               onClick={() => openEditModal(item)}
@@ -1761,6 +1814,24 @@ export default function DashboardClient({
                       placeholder="017-32123456"
                       className="w-full rounded-xl border border-line bg-surface-muted px-3 py-2.5 text-left text-[11px] text-ink outline-none placeholder:text-ink-faint focus:border-primary focus:ring-4 focus:ring-primary/15 disabled:opacity-60"
                     />
+                  </div>
+                  <div className="space-y-1.5">
+                    <label htmlFor="contact-instagram" className="text-[10px] font-bold text-ink-soft">
+                      اینستاگرام
+                    </label>
+                    <input
+                      id="contact-instagram"
+                      value={contact.instagram}
+                      onChange={(event) => setContact((c) => ({ ...c, instagram: event.target.value }))}
+                      dir="ltr"
+                      maxLength={80}
+                      disabled={savingContact}
+                      placeholder="@royal.cafe"
+                      className="w-full rounded-xl border border-line bg-surface-muted px-3 py-2.5 text-left text-[11px] text-ink outline-none placeholder:text-ink-faint focus:border-primary focus:ring-4 focus:ring-primary/15 disabled:opacity-60"
+                    />
+                    <p className="text-[9px] text-ink-faint">
+                      این شناسه در کشوی «مجموعه ما»ی صفحهٔ مشتری نمایش داده می‌شود.
+                    </p>
                   </div>
                 </div>
 

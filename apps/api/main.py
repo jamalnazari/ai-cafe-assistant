@@ -763,6 +763,39 @@ async def upload_menu_item_image(
     }
 
 
+# --- حذف تصویر آیتم توسط مالک (آیتم و بقیهٔ مشخصات دست‌نخورده می‌مانند) ---
+@app.delete("/api/v1/restaurants/{restaurant_slug}/items/{item_key}/image")
+async def delete_menu_item_image(
+    restaurant_slug: str,
+    item_key: str,
+    db: AsyncSession = Depends(get_db),
+    _owner_guard: None = Depends(guard_owner_restaurant),
+) -> dict[str, str]:
+    result = await db.execute(
+        select(MenuItemModel)
+        .join(RestaurantModel)
+        .where(
+            RestaurantModel.slug == restaurant_slug,
+            MenuItemModel.item_key == item_key,
+        )
+    )
+    target_item = result.scalar_one_or_none()
+    if target_item is None:
+        raise HTTPException(status_code=404, detail="آیتم یافت نشد.")
+    if not target_item.image_filename:
+        raise HTTPException(status_code=404, detail="این آیتم تصویری ندارد.")
+
+    old_filename = target_item.image_filename
+    target_item.image_filename = None
+    try:
+        await db.commit()
+    except Exception:
+        await db.rollback()
+        raise
+    menu_image_service.delete_image(old_filename)
+    return {"message": "تصویر آیتم حذف شد."}
+
+
 # --- حذف آیتم از منو ---
 @app.delete("/api/v1/restaurants/{restaurant_slug}/items/{item_key}")
 async def delete_menu_item(
@@ -946,6 +979,7 @@ async def revoke_user_sessions(db: AsyncSession, user_id: int) -> None:
 CONTACT_FIELDS = (
     "address",
     "phone",
+    "instagram",
     "opening_hours",
     "price_range",
     "city",
@@ -965,6 +999,7 @@ def contact_fields_payload(source) -> dict:
     return {
         "address": getattr(source, "address", None),
         "phone": getattr(source, "phone", None),
+        "instagram": getattr(source, "instagram", None),
         "opening_hours": getattr(source, "opening_hours", None),
         "price_range": getattr(source, "price_range", None),
         "city": getattr(source, "city", None) or "گرگان",

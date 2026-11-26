@@ -11,6 +11,8 @@ from pydantic import BaseModel, Field, field_validator
 from app.core.sanitize import clean_text
 
 PHONE_PATTERN = re.compile(r"^[0-9+\-()\s]{5,30}$")
+# شناسهٔ اینستاگرام: حروف انگلیسی، عدد، نقطه و زیرخط (۱ تا ۳۰ نویسه)
+INSTAGRAM_PATTERN = re.compile(r"^[A-Za-z0-9._]{1,30}$")
 
 
 class FaqItem(BaseModel):
@@ -31,6 +33,8 @@ class ContactFields(BaseModel):
 
     address: str | None = Field(default=None, max_length=255)
     phone: str | None = Field(default=None, max_length=30)
+    # شناسهٔ اینستاگرام بدون @؛ با @ یا نشانی کامل هم وارد شود پاک‌سازی می‌شود.
+    instagram: str | None = Field(default=None, max_length=80)
     opening_hours: str | None = Field(default=None, max_length=255)
     price_range: str | None = Field(default=None, max_length=40)
     city: str | None = Field(default=None, max_length=60)
@@ -57,6 +61,25 @@ class ContactFields(BaseModel):
                 "شمارهٔ تماس فقط می‌تواند شامل رقم، +، خط تیره و پرانتز باشد."
             )
         return phone
+
+    @field_validator("instagram")
+    @classmethod
+    def _instagram(cls, value: str | None) -> str | None:
+        if value is None:
+            return None
+        text = clean_text(value).replace(" ", "")
+        if not text:
+            return None
+        # پذیرش سه شکل ورودی: @handle، handle و نشانی کامل صفحهٔ اینستاگرام
+        text = re.sub(
+            r"^(?:https?://)?(?:www\.)?instagram\.com/", "", text, flags=re.IGNORECASE
+        ).lstrip("@").rstrip("/")
+        if not INSTAGRAM_PATTERN.match(text):
+            raise ValueError(
+                "شناسهٔ اینستاگرام فقط می‌تواند شامل حروف انگلیسی، عدد، "
+                "نقطه و زیرخط باشد (حداکثر ۳۰ نویسه)."
+            )
+        return text
 
     @field_validator("cuisine_tags")
     @classmethod
@@ -98,6 +121,7 @@ class RestaurantProfileOut(BaseModel):
     about: str | None = None
     address: str | None = None
     phone: str | None = None
+    instagram: str | None = None
     opening_hours: str | None = None
     price_range: str | None = None
     city: str | None = None

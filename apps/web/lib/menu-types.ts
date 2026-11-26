@@ -34,6 +34,8 @@ export interface RestaurantMenu {
   /** اطلاعات تماس و سئوی محلی (آدرس، تلفن، ساعت کاری، محدودهٔ قیمت). */
   restaurant_address?: string | null;
   restaurant_phone?: string | null;
+  /** شناسهٔ اینستاگرام مجموعه بدون @؛ در کشوی «مجموعه ما» نمایش داده می‌شود. */
+  restaurant_instagram?: string | null;
   opening_hours?: string | null;
   price_range?: string | null;
   city?: string | null;

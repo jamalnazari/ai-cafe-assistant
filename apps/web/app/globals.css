@@ -281,6 +281,20 @@
   animation: fade-in 0.25s ease both;
 }
 
+/* کشوی فهرست صفحهٔ مشتری؛ در RTL از سمت راست داخل می‌آید */
+@keyframes drawer-in {
+  from {
+    transform: translateX(100%);
+  }
+  to {
+    transform: translateX(0);
+  }
+}
+
+.animate-drawer {
+  animation: drawer-in 0.28s cubic-bezier(0.22, 1, 0.36, 1) both;
+}
+
 @media (prefers-reduced-motion: reduce) {
   html {
     scroll-behavior: auto;
@@ -289,7 +303,8 @@
   .animate-rise,
   .animate-toast,
   .animate-sheet,
-  .animate-fade {
+  .animate-fade,
+  .animate-drawer {
     animation: none;
   }
 
