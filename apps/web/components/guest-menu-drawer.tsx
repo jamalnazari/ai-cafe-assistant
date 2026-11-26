@@ -6,6 +6,7 @@ import {
   useState,
   useSyncExternalStore,
 } from "react";
+import { createPortal } from "react-dom";
 import {
   AtSign,
   Check,
@@ -117,15 +118,22 @@ export default function GuestMenuDrawer({
         <MenuIcon className="h-4 w-4" aria-hidden="true" />
       </button>
 
-      {open && (
-        <div className="fixed inset-0 z-[200]" role="dialog" aria-modal="true">
-          <button
-            type="button"
-            aria-label="بستن فهرست"
-            onClick={close}
-            className="absolute inset-0 h-full w-full animate-fade cursor-default bg-black/45 backdrop-blur-sm"
-          />
-          <div className="animate-drawer absolute inset-y-0 right-0 z-10 flex w-72 max-w-[85vw] flex-col border-l border-line bg-canvas shadow-float">
+      {open &&
+        // کشو در Portal رندر می‌شود؛ هدر دارای backdrop-blur است و به‌عنوان
+        // containing block، عنصر fixed فرزند را به کادر خودش حبس می‌کند.
+        createPortal(
+          <div
+            className="fixed inset-0 z-[200]"
+            role="dialog"
+            aria-modal="true"
+          >
+            <button
+              type="button"
+              aria-label="بستن فهرست"
+              onClick={close}
+              className="absolute inset-0 h-full w-full animate-fade cursor-default bg-black/45 backdrop-blur-sm"
+            />
+            <div className="animate-drawer absolute inset-y-0 right-0 z-10 flex w-72 max-w-[85vw] flex-col border-l border-line bg-canvas shadow-float">
             <div className="flex items-center justify-between border-b border-line/60 px-4 py-3.5">
               <p className="text-sm font-black">فهرست</p>
               <button
@@ -360,9 +368,10 @@ export default function GuestMenuDrawer({
             <p className="border-t border-line/60 px-4 py-3 text-center text-[9px] text-ink-faint">
               {restaurantName}
             </p>
-          </div>
-        </div>
-      )}
+            </div>
+          </div>,
+          document.body,
+        )}
     </>
   );
 }
