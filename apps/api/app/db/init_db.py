@@ -481,12 +481,28 @@ def parse_env_llm_entries() -> list[tuple[str, str, str | None]]:
 
 
 async def seed_llm_keys_from_env(session: AsyncSession) -> None:
-    """نمایش اولیهٔ کلیدهای .env در پنل؛ فقط یک‌بار وقتی جدول خالی است."""
+    """نمایش اولیهٔ کلیدهای .env در پنل؛ فقط یک‌بار وقتی جدول خالی است.
+
+    منابع seed: بلوک‌های AI_BASE_URL/AI_API_KEY در فایل‌های .env (حتی کامنت‌شده)
+    و همچنین پیکربندی فعالِ محیط اجرا (در Docker از env_file می‌آید و فایل
+    .env داخل کانتینر وجود ندارد).
+    """
     count = await session.scalar(select(func.count(LlmApiKeyModel.id)))
     if count:
         return
 
     entries = parse_env_llm_entries()
+    seen = {(base_url, api_key) for base_url, api_key, _ in entries}
+    active_key = (settings.AI_API_KEY or "").strip()
+    if (
+        settings.LLM_PROVIDER != "mock"
+        and active_key
+        and active_key != "mock-key"
+        and (settings.AI_BASE_URL, active_key) not in seen
+    ):
+        entries.append(
+            (settings.AI_BASE_URL.rstrip("/"), active_key, settings.LLM_MODEL or None)
+        )
     if not entries:
         return
 
