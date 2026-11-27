@@ -53,6 +53,13 @@ def production_client(tmp_path, monkeypatch):
     monkeypatch.setattr(settings, "LOGIN_RATE_WINDOW_SECONDS", 300)
     monkeypatch.setattr(settings, "ASK_RATE_LIMIT", 2)
     monkeypatch.setattr(settings, "ASK_RATE_WINDOW_SECONDS", 60)
+
+    # تست‌های نرخ نباید به سرویس واقعی LLM وابسته باشند (پاسخ سریع و قطعی).
+    class _CannedProvider:
+        async def generate_response(self, system_prompt, user_question, history=None):
+            return "پاسخ آزمایشی"
+
+    monkeypatch.setattr(main.assistant_service, "llm_provider", _CannedProvider())
     reset_rate_limits()
 
     with TestClient(app, base_url="https://testserver") as client:
