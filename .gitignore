@@ -25,3 +25,7 @@ Thumbs.db
 # Database backups
 backups/
 apps/api/backups/
+
+# SQLite runtime artifacts (WAL mode)
+*.db-wal
+*.db-shm
