@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useState } from "react";
 import { CircleAlert, Coffee, LoaderCircle } from "lucide-react";
 
 import CustomerMenu from "@/components/customer-menu";
@@ -63,11 +63,6 @@ export default function GuestMenuClient({
     window.scrollTo(0, 0);
   }, [view]);
 
-  const categoryCount = useMemo(
-    () => new Set((menu?.items ?? []).map((item) => item.category)).size,
-    [menu],
-  );
-
   if (!menu) {
     return (
       <div className="flex min-h-svh items-center justify-center p-4">
@@ -117,8 +112,6 @@ export default function GuestMenuClient({
       restaurantName={`${menu.restaurant_label ?? "کافه"} ${menu.restaurant_name}`.trim()}
       logoUrl={menu.logo_url ?? null}
       backgroundUrl={menu.background_url ?? null}
-      itemCount={menu.items.length}
-      categoryCount={categoryCount}
       assistant={assistant}
       defaultTheme={defaultTheme}
       phone={menu.restaurant_phone ?? null}
