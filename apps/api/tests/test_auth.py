@@ -54,19 +54,7 @@ def auth_context(tmp_path, monkeypatch) -> AuthTestContext:
             await connection.run_sync(Base.metadata.create_all)
 
         async with session_factory() as session:
-            session.add_all(
-                [
-                    UserModel(
-                        email="owner@cafe.com",
-                        password_hash=hash_password("123456"),
-                        is_owner=True,
-                    ),
-                    UserModel(
-                        email="staff@cafe.com",
-                        password_hash=hash_password("123456"),
-                        is_owner=False,
-                    ),
-                    RestaurantModel(
+            demo_restaurant = RestaurantModel(
                         slug="demo",
                         name="کافه آزمایشی",
                         categories=[MenuCategoryModel(name="نوشیدنی گرم")],
@@ -82,6 +70,24 @@ def auth_context(tmp_path, monkeypatch) -> AuthTestContext:
                                 price_currency="IRR",
                             )
                         ],
+            )
+            session.add(demo_restaurant)
+            await session.flush()
+            session.add_all(
+                [
+                    UserModel(
+                        username="owner",
+                        email="owner@cafe.com",
+                        password_hash=hash_password("123456"),
+                        role="owner",
+                        restaurant_id=demo_restaurant.id,
+                        is_owner=True,
+                    ),
+                    UserModel(
+                        username="staff",
+                        email="staff@cafe.com",
+                        password_hash=hash_password("123456"),
+                        is_owner=False,
                     ),
                 ]
             )
@@ -159,7 +165,11 @@ def test_login_creates_secure_hashed_session(auth_context: AuthTestContext):
 
     token = client.cookies.get(settings.SESSION_COOKIE_NAME)
     assert token
-    assert client.get("/api/v1/auth/me").json() == {"email": "owner@cafe.com"}
+    me = client.get("/api/v1/auth/me").json()
+    assert me["email"] == "owner@cafe.com"
+    assert me["username"] == "owner"
+    assert me["role"] == "owner"
+    assert me["restaurant_slug"] == "demo"
 
     async def load_sessions() -> list[AuthSessionModel]:
         async with auth_context.session_factory() as session:
@@ -185,7 +195,7 @@ def test_invalid_credentials_and_non_owner_cannot_login(
 
     assert wrong_password.status_code == 401
     assert non_owner.status_code == 401
-    assert wrong_password.json()["detail"] == "ایمیل یا رمز عبور اشتباه است."
+    assert wrong_password.json()["detail"] == "نام کاربری یا رمز عبور اشتباه است."
     assert client.cookies.get(settings.SESSION_COOKIE_NAME) is None
     assert client.get("/api/v1/auth/me").status_code == 401
 

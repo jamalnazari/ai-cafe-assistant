@@ -33,15 +33,18 @@ def branding_context(tmp_path, monkeypatch):
         async with engine.begin() as connection:
             await connection.run_sync(Base.metadata.create_all)
         async with session_factory() as session:
-            session.add_all(
-                [
-                    UserModel(
-                        email="owner@cafe.com",
-                        password_hash=hash_password("secret-pass"),
-                        is_owner=True,
-                    ),
-                    RestaurantModel(slug="demo", name="کافهٔ آزمایشی"),
-                ]
+            demo_restaurant = RestaurantModel(slug="demo", name="کافهٔ آزمایشی")
+            session.add(demo_restaurant)
+            await session.flush()
+            session.add(
+                UserModel(
+                    username="owner",
+                    email="owner@cafe.com",
+                    password_hash=hash_password("secret-pass"),
+                    role="owner",
+                    restaurant_id=demo_restaurant.id,
+                    is_owner=True,
+                )
             )
             await session.commit()
 
@@ -465,3 +468,31 @@ def test_prompt_describes_menu_when_about_is_empty():
     assert "۱۰." in prompt
     assert "معرفی کوتاه" in prompt
     assert "ساعت کاری یا " in prompt
+
+
+def test_owner_can_set_default_theme_for_customer_page(branding_context):
+    """صاحب کافه تم پیش‌فرض صفحهٔ مشتری را انتخاب می‌کند و در منو منتشر می‌شود."""
+    client, _uploads = branding_context
+    login(client)
+
+    response = client.patch(
+        "/api/v1/restaurants/demo", json={"default_theme": "emerald"}
+    )
+
+    assert response.status_code == 200
+    assert response.json()["default_theme"] == "emerald"
+    assert menu_of(client)["restaurant_theme"] == "emerald"
+
+    # مقدار خارج از فهرست مجاز رد می‌شود.
+    invalid = client.patch(
+        "/api/v1/restaurants/demo", json={"default_theme": "neon"}
+    )
+    assert invalid.status_code == 422
+
+    # null یعنی برگشت به تم پیش‌فرض سراسری.
+    cleared = client.patch(
+        "/api/v1/restaurants/demo", json={"default_theme": None}
+    )
+    assert cleared.status_code == 200
+    assert cleared.json()["default_theme"] is None
+    assert menu_of(client)["restaurant_theme"] is None

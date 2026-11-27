@@ -25,6 +25,13 @@ export default function Modal({
   showClose = true,
 }: ModalProps) {
   const panelRef = useRef<HTMLDivElement | null>(null);
+  const onCloseRef = useRef(onClose);
+
+  // جدیدترین onClose در ref نگه داشته می‌شود تا شنوندهٔ Escape همیشه
+  // نسخهٔ تازه را صدا بزند، بدون این‌که listener در هر رندر بازسازی شود.
+  useEffect(() => {
+    onCloseRef.current = onClose;
+  }, [onClose]);
 
   useEffect(() => {
     if (!open) return;
@@ -44,7 +51,7 @@ export default function Modal({
     const handleKeyDown = (event: KeyboardEvent) => {
       if (event.key === "Escape") {
         event.preventDefault();
-        onClose();
+        onCloseRef.current();
         return;
       }
       if (event.key !== "Tab") return;
@@ -76,7 +83,7 @@ export default function Modal({
       document.body.style.paddingRight = previousPaddingRight;
       previouslyFocused?.focus?.({ preventScroll: true });
     };
-  }, [open, onClose]);
+  }, [open]);
 
   if (!open) return null;
 

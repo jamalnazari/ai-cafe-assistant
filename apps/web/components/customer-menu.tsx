@@ -20,16 +20,19 @@ import {
 } from "lucide-react";
 
 import ItemDetailModal from "@/components/item-detail-modal";
+import GuestMenuDrawer from "@/components/guest-menu-drawer";
 import MenuCategoryNav from "@/components/menu-category-nav";
-import ThemeSwitcher from "@/components/theme-switcher";
 import { formatItemPrice, formatNumber } from "@/lib/format";
 import type { MenuItem, RestaurantMenu } from "@/lib/menu-types";
+import type { ThemeId } from "@/lib/theme";
 import { useCategoryScrollSpy } from "@/lib/use-category-scroll-spy";
 
 type CustomerMenuProps = {
   menu: RestaurantMenu;
   onBack: () => void;
   onAsk: (question: string) => void;
+  /** تم پیش‌فرض انتخابی صاحب کافه برای صفحهٔ مشتری. */
+  defaultTheme?: ThemeId;
 };
 
 function categoryIcon(categoryName: string) {
@@ -48,6 +51,7 @@ export default function CustomerMenu({
   menu,
   onBack,
   onAsk,
+  defaultTheme,
 }: CustomerMenuProps) {
   const [selectedItem, setSelectedItem] = useState<MenuItem | null>(null);
   const [question, setQuestion] = useState("");
@@ -134,7 +138,13 @@ export default function CustomerMenu({
               {formatNumber(categoryList.length)} دسته‌بندی
             </p>
           </div>
-          <ThemeSwitcher />
+          <GuestMenuDrawer
+            restaurantName={menu.restaurant_name}
+            phone={menu.restaurant_phone}
+            instagram={menu.restaurant_instagram}
+            defaultTheme={defaultTheme}
+            onOpenMenu={() => window.scrollTo({ top: 0, behavior: "smooth" })}
+          />
         </div>
       </header>
 
@@ -152,7 +162,9 @@ export default function CustomerMenu({
       <main className="relative z-10 mx-auto max-w-5xl px-4 pt-5 pb-10">
         <div className="mb-4 flex items-end justify-between gap-3">
           <div>
-            <h2 className="text-base font-black">منوی کافه</h2>
+            <h2 className="text-base font-black">
+              منوی {menu.restaurant_label?.trim() || "کافه"}
+            </h2>
             <p className="mt-0.5 text-[11px] text-ink-faint">
               برای دیدن ترکیبات و جزئیات، روی هر آیتم بزنید
             </p>
@@ -171,7 +183,7 @@ export default function CustomerMenu({
               هنوز آیتمی به منو اضافه نشده
             </h3>
             <p className="mt-2 text-[11px] leading-6 text-ink-soft">
-              صاحب کافه به‌زودی منوی خود را در این صفحه قرار می‌دهد.
+              صاحب {menu.restaurant_label?.trim() || "کافه"} به‌زودی منوی خود را در این صفحه قرار می‌دهد.
             </p>
           </div>
         )}
@@ -278,7 +290,7 @@ export default function CustomerMenu({
         </div>
       </main>
 
-      <div className="fixed inset-x-0 bottom-0 z-30 border-t border-line/60 bg-canvas/90 backdrop-blur-xl">
+      <div className="fixed inset-x-0 bottom-2 z-30 border-t border-line/60 bg-canvas/90 backdrop-blur-xl">
         <div
           className="mx-auto w-full max-w-5xl px-4 pt-2.5"
           style={{ paddingBottom: "max(0.75rem, env(safe-area-inset-bottom))" }}

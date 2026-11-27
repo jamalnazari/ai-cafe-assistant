@@ -44,6 +44,8 @@ const sharedEnv = {
   ...process.env,
   ENVIRONMENT: productionMode ? "production" : process.env.ENVIRONMENT ?? "development",
   API_INTERNAL_URL: apiInternalUrl,
+  // لاگ‌های فارسی uvicorn/Next روی کنسول cp1252 ویندوز نشکنند.
+  PYTHONIOENCODING: "utf-8",
 };
 
 const apiArgs = ["-m", "uvicorn", "main:app", "--host", apiHost, "--port", String(apiPort)];

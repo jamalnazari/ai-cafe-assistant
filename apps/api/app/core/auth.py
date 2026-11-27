@@ -50,3 +50,28 @@ async def get_current_owner(
         )
 
     return owner
+
+
+async def get_current_admin(
+    current_user: UserModel = Depends(get_current_owner),
+) -> UserModel:
+    """فقط مدیر کل سامانه اجازهٔ مدیریت کافه‌ها و کاربران را دارد."""
+    if current_user.role != "admin":
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="این بخش فقط برای مدیر سامانه در دسترس است.",
+        )
+    return current_user
+
+
+def assert_can_manage_restaurant(
+    current_user: UserModel, restaurant_id: int
+) -> None:
+    """مدیر کل همهٔ کافه‌ها را می‌بیند؛ صاحب کافه فقط کافهٔ خودش را."""
+    if current_user.role == "admin":
+        return
+    if current_user.restaurant_id != restaurant_id:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="شما به این کافه دسترسی ندارید.",
+        )

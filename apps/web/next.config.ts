@@ -13,6 +13,9 @@ const nextConfig: NextConfig = {
   // برای اینکه روی رابط کاربری سایت ظاهر نشود، غیرفعال شده است.
   devIndicators: false,
   poweredByHeader: false,
+  // خروجی مستقل برای تصویر Docker؛ حجم تصویر نهایی را چند برابر کم می‌کند.
+  output: "standalone",
+  compress: true,
   turbopack: {
     root: projectDir,
   },
@@ -36,13 +39,29 @@ const nextConfig: NextConfig = {
             key: "Permissions-Policy",
             value: "camera=(), geolocation=(), payment=()",
           },
+          // HSTS فقط وقتی واقعاً HTTPS است معنا دارد؛ پشت Caddy/Nginx تنظیم می‌شود.
+          ...(process.env.NODE_ENV === "production"
+            ? [
+                {
+                  key: "Strict-Transport-Security",
+                  value: "max-age=31536000; includeSubDomains",
+                },
+              ]
+            : []),
         ],
       },
       {
-        // تصاویر منو تغییرناپذیرند؛ کش طولانی برای کاهش بار سرور.
-        source: "/api/v1/uploads/menu-items/:path*",
+        // تصاویر آپلودی نام یکتا دارند؛ کش طولانی برای کاهش بار سرور.
+        source: "/api/v1/uploads/:path*",
         headers: [
-          { key: "Cache-Control", value: "public, max-age=604800, immutable" },
+          { key: "Cache-Control", value: "public, max-age=31536000, immutable" },
+        ],
+      },
+      {
+        // دارایی‌های ساخته‌شدهٔ Next.js تغییرناپذیرند.
+        source: "/_next/static/:path*",
+        headers: [
+          { key: "Cache-Control", value: "public, max-age=31536000, immutable" },
         ],
       },
     ];

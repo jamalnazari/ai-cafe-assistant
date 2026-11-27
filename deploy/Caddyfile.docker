@@ -1,0 +1,100 @@
+# پیکربندی Caddy مخصوص Docker Compose
+#
+# حالت فعلی: دامنه ai-checkmenu.ir با HTTPS خودکار (گواهی Let's Encrypt)
+# به‌علاوه دسترسی از IP روی پورت 80 با هدایت دامنه به HTTPS.
+# گواهی توسط Caddy دریافت و به‌صورت خودکار تمدید می‌شود.
+
+{
+	email admin@ai-checkmenu.ir
+}
+
+# --- دامنه با HTTPS ---
+ai-checkmenu.ir, www.ai-checkmenu.ir {
+	tls admin@ai-checkmenu.ir
+
+	encode zstd gzip
+
+	header {
+		Strict-Transport-Security "max-age=31536000; includeSubDomains"
+		X-Content-Type-Options "nosniff"
+		Referrer-Policy "strict-origin-when-cross-origin"
+		-Server
+	}
+
+	# تصاویر آپلودی: کش یک‌ساله (نام فایل یکتاست)
+	handle /api/v1/uploads/* {
+		header Cache-Control "public, max-age=31536000, immutable"
+		reverse_proxy api:8000
+	}
+
+	# درخواست‌های API مستقیم به FastAPI می‌روند (بدون واسطهٔ Next.js)
+	handle /api/* {
+		reverse_proxy api:8000
+	}
+
+	# دارایی‌های استاتیک Next.js
+	handle /_next/static/* {
+		header Cache-Control "public, max-age=31536000, immutable"
+		reverse_proxy web:3000 {
+			header_up Host {host}
+			header_up X-Forwarded-Host {host}
+			header_up X-Forwarded-Proto {scheme}
+		}
+	}
+
+	# بقیهٔ مسیرها به Next.js
+	handle {
+		reverse_proxy web:3000 {
+			header_up Host {host}
+			header_up X-Forwarded-Host {host}
+			header_up X-Forwarded-Proto {scheme}
+		}
+	}
+}
+
+# --- پورت 80: هدایت دامنه به HTTPS + دسترسی از IP ---
+:80 {
+	encode zstd gzip
+
+	header {
+		X-Content-Type-Options "nosniff"
+		Referrer-Policy "strict-origin-when-cross-origin"
+		-Server
+	}
+
+	# دامنه → HTTPS (308 Permanent)
+	@domain host ai-checkmenu.ir www.ai-checkmenu.ir
+handle @domain {
+		redir https://{host}{uri} 308
+	}
+
+	# تصاویر آپلودی: کش یک‌ساله
+	handle /api/v1/uploads/* {
+		header Cache-Control "public, max-age=31536000, immutable"
+		reverse_proxy api:8000
+	}
+
+	# API مستقیم به FastAPI
+	handle /api/* {
+		reverse_proxy api:8000
+	}
+
+	# دارایی‌های استاتیک Next.js
+	handle /_next/static/* {
+		header Cache-Control "public, max-age=31536000, immutable"
+		reverse_proxy web:3000 {
+			header_up Host {host}
+			header_up X-Forwarded-Host {host}
+			header_up X-Forwarded-Proto {scheme}
+		}
+	}
+
+	# بقیهٔ مسیرها (دسترسی با IP)
+	handle {
+		reverse_proxy web:3000 {
+			header_up Host {host}
+			header_up X-Forwarded-Host {host}
+			header_up X-Forwarded-Proto {scheme}
+		}
+	}
+}

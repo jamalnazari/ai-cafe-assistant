@@ -1,6 +1,6 @@
 from datetime import datetime, timezone
 
-from sqlalchemy import delete, select, update
+from sqlalchemy import delete, func, select, update
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.models.auth_session import AuthSessionModel
@@ -14,6 +14,14 @@ class SqlAlchemyAuthRepository:
     async def get_user_by_email(self, email: str) -> UserModel | None:
         result = await self.session.execute(
             select(UserModel).where(UserModel.email == email)
+        )
+        return result.scalar_one_or_none()
+
+    async def get_user_by_username(self, username: str) -> UserModel | None:
+        result = await self.session.execute(
+            select(UserModel).where(
+                func.lower(UserModel.username) == username.strip().lower()
+            )
         )
         return result.scalar_one_or_none()
 
@@ -44,6 +52,7 @@ class SqlAlchemyAuthRepository:
                 AuthSessionModel.revoked_at.is_(None),
                 AuthSessionModel.expires_at > now,
                 UserModel.is_owner.is_(True),
+                UserModel.is_active.is_(True),
             )
         )
         return result.scalar_one_or_none()

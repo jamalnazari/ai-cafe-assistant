@@ -13,10 +13,12 @@ import {
   ExternalLink,
   Flame,
   Image as ImageIcon,
+  ImageOff,
   ImagePlus,
   Info,
   LoaderCircle,
   LogOut,
+  Palette,
   Pencil,
   Plus,
   Printer,
@@ -32,32 +34,73 @@ import MenuCategoryNav from "@/components/menu-category-nav";
 import ThemeSwitcher from "@/components/theme-switcher";
 import Modal from "@/components/ui/modal";
 import { ToastViewport, useToasts } from "@/components/ui/toast";
+// خوانندهٔ خطاهای API با ترجمهٔ فارسی پیام‌های اعتبارسنجی.
+import { readApiError as getResponseError } from "@/lib/api-errors";
 import { cn } from "@/lib/cn";
 import {
   formatItemPrice,
   formatNumber,
   restaurantInitial,
 } from "@/lib/format";
+import { DEFAULT_THEME, THEMES, type ThemeId } from "@/lib/theme";
 import { useCategoryScrollSpy } from "@/lib/use-category-scroll-spy";
-import type { BrandingKind, MenuItem, RestaurantMenu } from "./dashboard-types";
+import type {
+  BrandingKind,
+  MenuItem,
+  RestaurantMenu,
+} from "./dashboard-types";
+
+type CafeContact = {
+  city: string;
+  address: string;
+  phone: string;
+  instagram: string;
+  opening_hours: string;
+  price_range: string;
+  cuisine_tags: string;
+  faq: string;
+};
+
+const EMPTY_CONTACT: CafeContact = {
+  city: "",
+  address: "",
+  phone: "",
+  instagram: "",
+  opening_hours: "",
+  price_range: "",
+  cuisine_tags: "",
+  faq: "",
+};
+
+/** اطلاعات تماس را از منوی سرور به شکل فرم درمی‌آورد. */
+function contactFromMenu(menu: RestaurantMenu | null): CafeContact {
+  if (!menu) return EMPTY_CONTACT;
+  return {
+    city: menu.city ?? "",
+    address: menu.restaurant_address ?? "",
+    phone: menu.restaurant_phone ?? "",
+    instagram: menu.restaurant_instagram ?? "",
+    opening_hours: menu.opening_hours ?? "",
+    price_range: menu.price_range ?? "",
+    cuisine_tags: (menu.cuisine_tags ?? []).join("، "),
+    faq: (menu.faq ?? [])
+      .map((item) => `${item.question} | ${item.answer}`)
+      .join("\n"),
+  };
+}
 
 const MAX_IMAGE_BYTES = 5 * 1024 * 1024;
 const ALLOWED_IMAGE_TYPES = ["image/jpeg", "image/png", "image/webp"];
 
 type DashboardClientProps = {
   ownerEmail: string;
+  ownerUsername: string;
+  restaurantSlug: string;
   qrUrl: string;
   initialMenu: RestaurantMenu | null;
 };
 
 type CategoryDeleteMode = "move" | "delete_items";
-
-async function getResponseError(response: Response, fallback: string) {
-  const data = (await response.json().catch(() => null)) as {
-    detail?: string;
-  } | null;
-  return data?.detail ?? fallback;
-}
 
 function validateImageFile(file: File) {
   if (!ALLOWED_IMAGE_TYPES.includes(file.type)) {
@@ -92,6 +135,8 @@ function StatCard({
 
 export default function DashboardClient({
   ownerEmail,
+  ownerUsername,
+  restaurantSlug,
   qrUrl,
   initialMenu,
 }: DashboardClientProps) {
@@ -149,17 +194,40 @@ export default function DashboardClient({
   );
   const lastSyncedBrandName = useRef<string | null>(null);
 
+  // --- تم پیش‌فرض صفحهٔ مشتری (انتخاب صاحب کافه) ---
+  const [themeDraft, setThemeDraft] = useState<ThemeId | null>(null);
+  const [savingTheme, setSavingTheme] = useState(false);
+  const [themeError, setThemeError] = useState<string | null>(null);
+
   // --- دربارهٔ مجموعه (توضیحاتی که دستیار هوشمند هم می‌خواند) ---
   const [aboutText, setAboutText] = useState("");
   const [savingAbout, setSavingAbout] = useState(false);
   const [aboutError, setAboutError] = useState<string | null>(null);
   const lastSyncedAbout = useRef<string | null>(null);
 
-  // در موبایل فقط یکی از دو بخش «منو» یا «مدیریت کافه» نمایش داده می‌شود.
-  const [mobilePanel, setMobilePanel] = useState<"menu" | "settings">("menu");
+  // --- اطلاعات تماس و سئوی محلی (آدرس، تلفن، ساعت کاری، پرسش‌های پرتکرار) ---
+  // مقادیر از منوی سرور مشتق می‌شوند و ویرایش‌های کاربر در یک «پیش‌نویس» نگه داشته
+  // می‌شود؛ بنابراین نیازی به همگام‌سازی با useEffect نیست.
+  const [contactDraft, setContactDraft] = useState<CafeContact | null>(null);
+  const [savingContact, setSavingContact] = useState(false);
+  const [contactError, setContactError] = useState<string | null>(null);
+
+  // چیدمان استاندارد پنل: تب‌های همیشه‌نمایان (منو / هویت / تماس / QR)
+  // که در دسکتاپ و موبایل یکسان عمل می‌کنند.
+  const [activeTab, setActiveTab] = useState<"menu" | "brand" | "contact" | "qr">(
+    "menu",
+  );
 
   const items = useMemo(() => menu?.items ?? [], [menu]);
-  const restaurantSlug = menu?.restaurant_slug ?? "demo";
+
+  const contact = contactDraft ?? contactFromMenu(menu);
+  const setContact = (
+    updater: (current: CafeContact) => CafeContact,
+  ) => setContactDraft(updater(contact));
+
+  /** تم انتخابی صاحب کافه؛ اگر ثبت نشده باشد، تم پیش‌فرض سراسری نمایش می‌یابد. */
+  const theme: ThemeId = themeDraft ?? menu?.restaurant_theme ?? DEFAULT_THEME;
+  const savedTheme: ThemeId = menu?.restaurant_theme ?? DEFAULT_THEME;
 
   const categoryNames = useMemo(() => {
     if (!menu) return [];
@@ -201,7 +269,7 @@ export default function DashboardClient({
 
   const fetchMenu = useCallback(async () => {
     try {
-      const response = await fetch(`/api/v1/restaurants/demo/menu`, {
+      const response = await fetch(`/api/v1/restaurants/${restaurantSlug}/menu`, {
         cache: "no-store",
         credentials: "same-origin",
       });
@@ -217,7 +285,7 @@ export default function DashboardClient({
         error instanceof Error ? error.message : "دریافت منو ناموفق بود.",
       );
     }
-  }, []);
+  }, [restaurantSlug]);
 
   const handleExpiredSession = useCallback(
     (response: Response) => {
@@ -242,6 +310,7 @@ export default function DashboardClient({
     lastSyncedAbout.current = about;
     setAboutText(about);
   }, [menu?.restaurant_about]);
+
 
   const saveBrandName = async (event: React.FormEvent) => {
     event.preventDefault();
@@ -310,6 +379,98 @@ export default function DashboardClient({
       );
     } finally {
       setSavingAbout(false);
+    }
+  };
+
+  const saveTheme = async () => {
+    if (savingTheme || theme === savedTheme) return;
+
+    setSavingTheme(true);
+    setThemeError(null);
+    try {
+      const response = await fetch(`/api/v1/restaurants/${restaurantSlug}`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ default_theme: theme }),
+        credentials: "same-origin",
+      });
+      if (handleExpiredSession(response)) return;
+      if (!response.ok) {
+        throw new Error(
+          await getResponseError(response, "ذخیرهٔ تم پیش‌فرض ناموفق بود."),
+        );
+      }
+      setThemeDraft(theme);
+      await fetchMenu();
+      push("تم پیش‌فرض صفحهٔ مشتری ذخیره شد.");
+    } catch (error) {
+      setThemeError(
+        error instanceof Error
+          ? error.message
+          : "ذخیرهٔ تم پیش‌فرض ناموفق بود.",
+      );
+    } finally {
+      setSavingTheme(false);
+    }
+  };
+
+  const saveContact = async (event: React.FormEvent) => {
+    event.preventDefault();
+    if (savingContact) return;
+
+    setSavingContact(true);
+    setContactError(null);
+    try {
+      const tags = contact.cuisine_tags
+        .split(/[,،]/)
+        .map((tag) => tag.trim())
+        .filter(Boolean)
+        .slice(0, 8);
+      const faq = contact.faq
+        .split("\n")
+        .map((line) => line.split("|"))
+        .filter((parts) => parts.length >= 2)
+        .map((parts) => ({
+          question: parts[0].trim(),
+          answer: parts.slice(1).join("|").trim(),
+        }))
+        .filter((item) => item.question.length >= 3 && item.answer)
+        .slice(0, 10);
+
+      const response = await fetch(`/api/v1/restaurants/${restaurantSlug}`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          city: contact.city.trim() || null,
+          address: contact.address.trim() || null,
+          phone: contact.phone.trim() || null,
+          instagram: contact.instagram.trim()
+            ? contact.instagram.trim().replace(/^@/, "")
+            : null,
+          opening_hours: contact.opening_hours.trim() || null,
+          price_range: contact.price_range.trim() || null,
+          cuisine_tags: tags,
+          faq,
+        }),
+        credentials: "same-origin",
+      });
+      if (handleExpiredSession(response)) return;
+      if (!response.ok) {
+        throw new Error(
+          await getResponseError(response, "ذخیرهٔ اطلاعات تماس ناموفق بود."),
+        );
+      }
+      await fetchMenu();
+      setContactDraft(null);
+      push("اطلاعات تماس ذخیره شد و در صفحهٔ عمومی کافه نمایش داده می‌شود.");
+    } catch (error) {
+      setContactError(
+        error instanceof Error
+          ? error.message
+          : "ذخیرهٔ اطلاعات تماس ناموفق بود.",
+      );
+    } finally {
+      setSavingContact(false);
     }
   };
 
@@ -657,6 +818,32 @@ export default function DashboardClient({
     }
   };
 
+  const handleImageDelete = async (itemKey: string) => {
+    if (uploadingItemKey) return;
+    setUploadingItemKey(itemKey);
+    try {
+      const response = await fetch(
+        `/api/v1/restaurants/${restaurantSlug}/items/${encodeURIComponent(itemKey)}/image`,
+        { method: "DELETE", credentials: "same-origin" },
+      );
+      if (handleExpiredSession(response)) return;
+      if (!response.ok) {
+        throw new Error(
+          await getResponseError(response, "حذف تصویر ناموفق بود."),
+        );
+      }
+      await fetchMenu();
+      push("تصویر آیتم حذف شد.");
+    } catch (error) {
+      push(
+        error instanceof Error ? error.message : "حذف تصویر ناموفق بود.",
+        "error",
+      );
+    } finally {
+      setUploadingItemKey(null);
+    }
+  };
+
   const confirmDeleteItem = async () => {
     if (!itemPendingDelete || deletingItem) return;
 
@@ -827,14 +1014,16 @@ export default function DashboardClient({
             </span>
             <div className="min-w-0">
               <h1 className="max-w-[9.5rem] truncate text-[13px] font-black sm:max-w-none sm:text-sm">
-                {menu?.restaurant_name ?? "پنل مدیریت کافه"}
+                {menu
+                  ? `${menu.restaurant_label ?? "کافه"} ${menu.restaurant_name}`
+                  : "پنل مدیریت"}
               </h1>
               <p
                 className="hidden truncate text-[10px] text-ink-faint sm:block"
                 dir="ltr"
-                title={ownerEmail}
+                title={ownerUsername || ownerEmail}
               >
-                {ownerEmail}
+                {ownerUsername || ownerEmail}
               </p>
             </div>
           </div>
@@ -948,56 +1137,53 @@ export default function DashboardClient({
           />
         </div>
 
-        {/* در موبایل فقط یک بخش در هر لحظه؛ در دسکتاپ هر دو ستون */}
-        <div className="sticky top-16 z-30 rounded-2xl border border-line/60 bg-canvas/95 p-1.5 backdrop-blur-xl lg:hidden">
-          <div
-            role="tablist"
-            aria-label="بخش‌های پنل"
-            className="grid grid-cols-2 gap-1 rounded-2xl bg-surface-muted p-1"
-          >
-            <button
-              type="button"
-              role="tab"
-              aria-selected={mobilePanel === "menu"}
-              onClick={() => setMobilePanel("menu")}
-              className={cn(
-                "inline-flex items-center justify-center gap-1.5 rounded-xl px-3 py-2.5 text-[11px] font-bold transition-colors",
-                mobilePanel === "menu"
-                  ? "bg-surface text-primary shadow-sm"
-                  : "text-ink-soft",
-              )}
-            >
-              <UtensilsCrossed className="h-4 w-4" aria-hidden="true" />
-              منو
-              <span className="rounded-full bg-primary-soft px-1.5 py-0.5 text-[9px] font-black text-primary tabular-nums">
-                {formatNumber(items.length)}
-              </span>
-            </button>
-            <button
-              type="button"
-              role="tab"
-              aria-selected={mobilePanel === "settings"}
-              onClick={() => setMobilePanel("settings")}
-              className={cn(
-                "inline-flex items-center justify-center gap-1.5 rounded-xl px-3 py-2.5 text-[11px] font-bold transition-colors",
-                mobilePanel === "settings"
-                  ? "bg-surface text-primary shadow-sm"
-                  : "text-ink-soft",
-              )}
-            >
-              <Store className="h-4 w-4" aria-hidden="true" />
-              مدیریت کافه
-            </button>
-          </div>
-        </div>
+        {/* ناوبری استاندارد پنل: هر لحظه فقط یک بخش */}
+        <nav
+          role="tablist"
+          aria-label="بخش‌های پنل"
+          className="sticky top-16 z-30 flex gap-1 overflow-x-auto rounded-2xl border border-line/60 bg-canvas/95 p-1.5 backdrop-blur-xl"
+        >
+          {(
+            [
+              { id: "menu", label: "منو", icon: UtensilsCrossed, badge: formatNumber(items.length) },
+              { id: "brand", label: "هویت و ظاهر", icon: Palette, badge: null },
+              { id: "contact", label: "تماس و معرفی", icon: Store, badge: null },
+              { id: "qr", label: "کد QR", icon: QrCode, badge: null },
+            ] as const
+          ).map((tab) => {
+            const active = activeTab === tab.id;
+            return (
+              <button
+                key={tab.id}
+                type="button"
+                role="tab"
+                aria-selected={active}
+                onClick={() => setActiveTab(tab.id)}
+                className={cn(
+                  "inline-flex shrink-0 items-center gap-1.5 rounded-xl px-3.5 py-2.5 text-[11px] font-bold transition-colors",
+                  active
+                    ? "bg-surface text-primary shadow-sm"
+                    : "text-ink-soft hover:text-ink",
+                )}
+              >
+                <tab.icon className="h-4 w-4" aria-hidden="true" />
+                {tab.label}
+                {tab.badge && (
+                  <span className="rounded-full bg-primary-soft px-1.5 py-0.5 text-[9px] font-black text-primary tabular-nums">
+                    {tab.badge}
+                  </span>
+                )}
+              </button>
+            );
+          })}
+        </nav>
 
-        <div className="grid gap-5 lg:grid-cols-[minmax(0,1fr)_21rem] lg:items-start">
-          <section
-            className={cn(
-              "order-2 min-w-0 overflow-visible rounded-3xl border border-line bg-surface shadow-card lg:order-1",
-              mobilePanel !== "menu" && "hidden lg:block",
-            )}
-          >
+        <section
+          className={cn(
+            "min-w-0 overflow-visible rounded-3xl border border-line bg-surface shadow-card",
+            activeTab !== "menu" && "hidden",
+          )}
+        >
             <div className="flex items-center justify-between gap-3 px-4 pb-3 pt-4 sm:px-5">
               <div className="min-w-0">
                 <h3 className="text-sm font-black">آیتم‌های منو</h3>
@@ -1189,6 +1375,26 @@ export default function DashboardClient({
                                 }}
                               />
                             </label>
+                            {item.image_url && (
+                              <button
+                                type="button"
+                                onClick={() => void handleImageDelete(item.id)}
+                                aria-label={`حذف تصویر ${item.name}`}
+                                title="حذف تصویر"
+                                disabled={uploadingItemKey === item.id}
+                                className={cn(
+                                  "inline-flex items-center gap-1 rounded-xl px-2 py-2 text-[10px] font-bold text-ink-soft transition-colors hover:bg-danger-soft hover:text-danger disabled:opacity-50",
+                                  uploadingItemKey === item.id &&
+                                    "pointer-events-none opacity-50",
+                                )}
+                              >
+                                <ImageOff
+                                  className="h-3.5 w-3.5"
+                                  aria-hidden="true"
+                                />
+                                <span className="hidden sm:inline">حذف تصویر</span>
+                              </button>
+                            )}
                             <button
                               type="button"
                               onClick={() => openEditModal(item)}
@@ -1219,13 +1425,13 @@ export default function DashboardClient({
             </div>
           </section>
 
-          <aside
-            className={cn(
-              "order-1 min-w-0 space-y-4 lg:order-2 lg:sticky lg:top-20",
-              mobilePanel !== "settings" && "hidden lg:block",
-            )}
-          >
-            <section className="rounded-3xl border border-line bg-surface shadow-card">
+          <aside className="min-w-0 space-y-4">
+            <section
+              className={cn(
+                "rounded-3xl border border-line bg-surface shadow-card",
+                activeTab !== "brand" && "hidden",
+              )}
+            >
               <div className="flex items-center gap-2.5 border-b border-line/60 px-4 py-3.5">
                 <span className="grid h-8 w-8 place-items-center rounded-xl bg-primary-soft text-primary">
                   <Store className="h-4 w-4" aria-hidden="true" />
@@ -1435,7 +1641,310 @@ export default function DashboardClient({
               </div>
             </section>
 
-            <section className="rounded-3xl border border-line bg-surface shadow-card">
+            <section
+              className={cn(
+                "rounded-3xl border border-line bg-surface shadow-card",
+                activeTab !== "brand" && "hidden",
+              )}
+            >
+              <div className="flex items-center gap-2.5 border-b border-line/60 px-4 py-3.5">
+                <span className="grid h-8 w-8 place-items-center rounded-xl bg-primary-soft text-primary">
+                  <Palette className="h-4 w-4" aria-hidden="true" />
+                </span>
+                <div className="min-w-0 flex-1">
+                  <h3 className="text-sm font-black">تم پیش‌فرض صفحهٔ مشتری</h3>
+                  <p className="text-[10px] text-ink-faint">
+                    مشتری‌ها وقتی خودشان تمی انتخاب نکرده‌اند، صفحه را با این تم
+                    می‌بینند
+                  </p>
+                </div>
+              </div>
+
+              <div className="space-y-3 p-4">
+                <div className="grid grid-cols-2 gap-2">
+                  {THEMES.map((option) => {
+                    const selected = theme === option.id;
+                    return (
+                      <button
+                        key={option.id}
+                        type="button"
+                        onClick={() => {
+                          setThemeDraft(option.id);
+                          setThemeError(null);
+                        }}
+                        disabled={savingTheme}
+                        aria-pressed={selected}
+                        className={cn(
+                          "flex items-center gap-2 rounded-2xl border px-2.5 py-2 text-right transition-colors disabled:opacity-60",
+                          selected
+                            ? "border-primary bg-primary-soft text-primary"
+                            : "border-line bg-surface-muted text-ink-soft hover:border-primary/40",
+                        )}
+                      >
+                        <span
+                          className="flex h-7 w-7 shrink-0 items-center justify-center gap-0.5 overflow-hidden rounded-lg border border-line"
+                          style={{ backgroundColor: option.swatches[1] }}
+                          aria-hidden="true"
+                        >
+                          <span
+                            className="h-3 w-1 rounded-full"
+                            style={{ backgroundColor: option.swatches[0] }}
+                          />
+                          <span
+                            className="h-2 w-1 rounded-full"
+                            style={{ backgroundColor: option.swatches[2] }}
+                          />
+                        </span>
+                        <span className="min-w-0 flex-1">
+                          <span className="block text-[11px] font-bold">
+                            {option.label}
+                          </span>
+                          <span className="block text-[9px] text-ink-faint">
+                            {option.hint}
+                          </span>
+                        </span>
+                        {selected && (
+                          <Check
+                            className="h-3.5 w-3.5 shrink-0"
+                            aria-hidden="true"
+                          />
+                        )}
+                      </button>
+                    );
+                  })}
+                </div>
+
+                <div className="flex items-center gap-1.5">
+                  <button
+                    type="button"
+                    onClick={() => void saveTheme()}
+                    disabled={savingTheme || theme === savedTheme}
+                    className="inline-flex flex-1 items-center justify-center gap-1.5 rounded-xl bg-primary px-3 py-2.5 text-[10px] font-bold text-on-primary transition-colors hover:bg-primary-strong disabled:cursor-not-allowed disabled:opacity-50"
+                  >
+                    {savingTheme ? (
+                      <LoaderCircle
+                        className="h-3.5 w-3.5 animate-spin"
+                        aria-hidden="true"
+                      />
+                    ) : (
+                      <Check className="h-3.5 w-3.5" aria-hidden="true" />
+                    )}
+                    ذخیرهٔ تم پیش‌فرض
+                  </button>
+                  {theme !== savedTheme && (
+                    <button
+                      type="button"
+                      onClick={() => setThemeDraft(null)}
+                      disabled={savingTheme}
+                      className="rounded-xl border border-line bg-surface px-3 py-2.5 text-[10px] font-bold text-ink-soft transition-colors hover:bg-surface-muted disabled:opacity-50"
+                    >
+                      انصراف
+                    </button>
+                  )}
+                </div>
+
+                <p className="text-[10px] leading-5 text-ink-faint">
+                  این تم فقط «پیش‌فرض» است؛ مشتری می‌تواند با دکمهٔ تم در صفحهٔ
+                  خودش آن را عوض کند.
+                </p>
+
+                {themeError && (
+                  <p
+                    role="alert"
+                    className="rounded-xl border border-danger/25 bg-danger-soft px-2.5 py-2 text-[10px] font-bold text-danger"
+                  >
+                    {themeError}
+                  </p>
+                )}
+              </div>
+            </section>
+
+            <section
+              className={cn(
+                "rounded-3xl border border-line bg-surface shadow-card",
+                activeTab !== "contact" && "hidden",
+              )}
+            >
+              <div className="flex items-center gap-2.5 border-b border-line/60 px-4 py-3.5">
+                <span className="grid h-8 w-8 place-items-center rounded-xl bg-primary-soft text-primary">
+                  <Store className="h-4 w-4" aria-hidden="true" />
+                </span>
+                <div className="min-w-0 flex-1">
+                  <h3 className="flex items-center gap-1.5 text-sm font-black">
+                    اطلاعات تماس و ساعات کاری
+                    {!(menu?.restaurant_address && menu?.restaurant_phone) && (
+                      <span className="rounded-full bg-warning-soft px-1.5 py-0.5 text-[9px] font-bold text-warning">
+                        تکمیل نشده
+                      </span>
+                    )}
+                  </h3>
+                  <p className="text-[10px] text-ink-faint">
+                    در صفحهٔ عمومی کافه و نتایج جست‌وجوی گوگل نمایش داده می‌شود
+                  </p>
+                </div>
+              </div>
+
+              <form onSubmit={saveContact} className="space-y-3 p-4">
+                <div className="grid gap-3 sm:grid-cols-2">
+                  <div className="space-y-1.5">
+                    <label htmlFor="contact-city" className="text-[10px] font-bold text-ink-soft">
+                      شهر
+                    </label>
+                    <input
+                      id="contact-city"
+                      value={contact.city}
+                      onChange={(event) => setContact((c) => ({ ...c, city: event.target.value }))}
+                      maxLength={60}
+                      disabled={savingContact}
+                      placeholder="گرگان"
+                      className="w-full rounded-xl border border-line bg-surface-muted px-3 py-2.5 text-[11px] text-ink outline-none placeholder:text-ink-faint focus:border-primary focus:ring-4 focus:ring-primary/15 disabled:opacity-60"
+                    />
+                  </div>
+                  <div className="space-y-1.5">
+                    <label htmlFor="contact-phone" className="text-[10px] font-bold text-ink-soft">
+                      تلفن تماس
+                    </label>
+                    <input
+                      id="contact-phone"
+                      value={contact.phone}
+                      onChange={(event) => setContact((c) => ({ ...c, phone: event.target.value }))}
+                      dir="ltr"
+                      maxLength={30}
+                      disabled={savingContact}
+                      placeholder="017-32123456"
+                      className="w-full rounded-xl border border-line bg-surface-muted px-3 py-2.5 text-left text-[11px] text-ink outline-none placeholder:text-ink-faint focus:border-primary focus:ring-4 focus:ring-primary/15 disabled:opacity-60"
+                    />
+                  </div>
+                  <div className="space-y-1.5">
+                    <label htmlFor="contact-instagram" className="text-[10px] font-bold text-ink-soft">
+                      اینستاگرام
+                    </label>
+                    <input
+                      id="contact-instagram"
+                      value={contact.instagram}
+                      onChange={(event) => setContact((c) => ({ ...c, instagram: event.target.value }))}
+                      dir="ltr"
+                      maxLength={80}
+                      disabled={savingContact}
+                      placeholder="@royal.cafe"
+                      className="w-full rounded-xl border border-line bg-surface-muted px-3 py-2.5 text-left text-[11px] text-ink outline-none placeholder:text-ink-faint focus:border-primary focus:ring-4 focus:ring-primary/15 disabled:opacity-60"
+                    />
+                    <p className="text-[9px] text-ink-faint">
+                      این شناسه در کشوی «مجموعه ما»ی صفحهٔ مشتری نمایش داده می‌شود.
+                    </p>
+                  </div>
+                </div>
+
+                <div className="space-y-1.5">
+                  <label htmlFor="contact-address" className="text-[10px] font-bold text-ink-soft">
+                    آدرس
+                  </label>
+                  <input
+                    id="contact-address"
+                    value={contact.address}
+                    onChange={(event) => setContact((c) => ({ ...c, address: event.target.value }))}
+                    maxLength={255}
+                    disabled={savingContact}
+                    placeholder="گرگان، خیابان شهید بهشتی، پلاک ۱۲"
+                    className="w-full rounded-xl border border-line bg-surface-muted px-3 py-2.5 text-[11px] text-ink outline-none placeholder:text-ink-faint focus:border-primary focus:ring-4 focus:ring-primary/15 disabled:opacity-60"
+                  />
+                </div>
+
+                <div className="grid gap-3 sm:grid-cols-2">
+                  <div className="space-y-1.5">
+                    <label htmlFor="contact-hours" className="text-[10px] font-bold text-ink-soft">
+                      ساعت کاری
+                    </label>
+                    <input
+                      id="contact-hours"
+                      value={contact.opening_hours}
+                      onChange={(event) => setContact((c) => ({ ...c, opening_hours: event.target.value }))}
+                      maxLength={255}
+                      disabled={savingContact}
+                      placeholder="هر روز ۱۲ تا ۲۳"
+                      className="w-full rounded-xl border border-line bg-surface-muted px-3 py-2.5 text-[11px] text-ink outline-none placeholder:text-ink-faint focus:border-primary focus:ring-4 focus:ring-primary/15 disabled:opacity-60"
+                    />
+                  </div>
+                  <div className="space-y-1.5">
+                    <label htmlFor="contact-price" className="text-[10px] font-bold text-ink-soft">
+                      محدودهٔ قیمت
+                    </label>
+                    <input
+                      id="contact-price"
+                      value={contact.price_range}
+                      onChange={(event) => setContact((c) => ({ ...c, price_range: event.target.value }))}
+                      maxLength={40}
+                      disabled={savingContact}
+                      placeholder="۱۵۰ تا ۳۵۰ هزار تومان"
+                      className="w-full rounded-xl border border-line bg-surface-muted px-3 py-2.5 text-[11px] text-ink outline-none placeholder:text-ink-faint focus:border-primary focus:ring-4 focus:ring-primary/15 disabled:opacity-60"
+                    />
+                  </div>
+                </div>
+
+                <div className="space-y-1.5">
+                  <label htmlFor="contact-tags" className="text-[10px] font-bold text-ink-soft">
+                    برچسب‌های آشپزی (با ویرگول)
+                  </label>
+                  <input
+                    id="contact-tags"
+                    value={contact.cuisine_tags}
+                    onChange={(event) => setContact((c) => ({ ...c, cuisine_tags: event.target.value }))}
+                    disabled={savingContact}
+                    placeholder="ایرانی، سنتی، کباب"
+                    className="w-full rounded-xl border border-line bg-surface-muted px-3 py-2.5 text-[11px] text-ink outline-none placeholder:text-ink-faint focus:border-primary focus:ring-4 focus:ring-primary/15 disabled:opacity-60"
+                  />
+                </div>
+
+                <div className="space-y-1.5">
+                  <label htmlFor="contact-faq" className="text-[10px] font-bold text-ink-soft">
+                    پرسش‌های پرتکرار (هر خط: پرسش | پاسخ)
+                  </label>
+                  <textarea
+                    id="contact-faq"
+                    value={contact.faq}
+                    onChange={(event) => setContact((c) => ({ ...c, faq: event.target.value }))}
+                    rows={3}
+                    disabled={savingContact}
+                    placeholder={"پارکینگ دارید؟ | بله، پارکینگ اختصاصی داریم."}
+                    className="w-full resize-y rounded-xl border border-line bg-surface-muted px-3 py-2.5 text-[11px] leading-6 text-ink outline-none placeholder:text-ink-faint focus:border-primary focus:ring-4 focus:ring-primary/15 disabled:opacity-60"
+                  />
+                </div>
+
+                <div className="flex items-center justify-between gap-2">
+                  <p className="text-[10px] leading-5 text-ink-faint">
+                    آدرس و ساعت کاری در صفحهٔ عمومی و نقشهٔ گوگل استفاده می‌شود.
+                  </p>
+                  <button
+                    type="submit"
+                    disabled={savingContact}
+                    className="inline-flex shrink-0 items-center gap-1 rounded-xl bg-primary px-3 py-2.5 text-[10px] font-bold text-on-primary transition-colors hover:bg-primary-strong disabled:cursor-not-allowed disabled:opacity-50"
+                  >
+                    {savingContact ? (
+                      <LoaderCircle className="h-3.5 w-3.5 animate-spin" aria-hidden="true" />
+                    ) : (
+                      <Check className="h-3.5 w-3.5" aria-hidden="true" />
+                    )}
+                    ذخیرهٔ اطلاعات تماس
+                  </button>
+                </div>
+
+                {contactError && (
+                  <p
+                    role="alert"
+                    className="rounded-xl border border-danger/25 bg-danger-soft px-2.5 py-2 text-[10px] font-bold text-danger"
+                  >
+                    {contactError}
+                  </p>
+                )}
+              </form>
+            </section>
+
+            <section
+              className={cn(
+                "rounded-3xl border border-line bg-surface shadow-card",
+                activeTab !== "contact" && "hidden",
+              )}
+            >
               <div className="flex items-center gap-2.5 border-b border-line/60 px-4 py-3.5">
                 <span className="grid h-8 w-8 place-items-center rounded-xl bg-primary-soft text-primary">
                   <Info className="h-4 w-4" aria-hidden="true" />
@@ -1526,7 +2035,12 @@ export default function DashboardClient({
               </form>
             </section>
 
-            <section className="rounded-3xl border border-line bg-surface shadow-card">
+            <section
+              className={cn(
+                "rounded-3xl border border-line bg-surface shadow-card",
+                activeTab !== "menu" && "hidden",
+              )}
+            >
               <div className="flex items-center gap-2.5 border-b border-line/60 px-4 py-3.5">
                 <span className="grid h-8 w-8 place-items-center rounded-xl bg-primary-soft text-primary">
                   <Tags className="h-4 w-4" aria-hidden="true" />
@@ -1621,7 +2135,12 @@ export default function DashboardClient({
               </div>
             </section>
 
-            <section className="rounded-3xl border border-line bg-surface shadow-card">
+            <section
+              className={cn(
+                "rounded-3xl border border-line bg-surface shadow-card",
+                activeTab !== "qr" && "hidden",
+              )}
+            >
               <div className="flex items-center gap-2.5 border-b border-line/60 px-4 py-3.5">
                 <span className="grid h-8 w-8 place-items-center rounded-xl bg-primary-soft text-primary">
                   <QrCode className="h-4 w-4" aria-hidden="true" />
@@ -1668,7 +2187,6 @@ export default function DashboardClient({
               </div>
             </section>
           </aside>
-        </div>
       </main>
 
       {/* --- فرم افزودن یا ویرایش آیتم --- */}

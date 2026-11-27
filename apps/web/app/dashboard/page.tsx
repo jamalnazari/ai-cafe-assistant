@@ -6,8 +6,13 @@ import type { RestaurantMenu } from "./dashboard-types";
 
 const apiInternalUrl = process.env.API_INTERNAL_URL ?? "http://127.0.0.1:8000";
 
-type OwnerResponse = {
-  email: string;
+type CurrentUser = {
+  username: string | null;
+  email: string | null;
+  role: string;
+  restaurant_slug: string | null;
+  restaurant_name: string | null;
+  restaurant_label: string | null;
 };
 
 export const dynamic = "force-dynamic";
@@ -30,9 +35,19 @@ export default async function DashboardPage() {
     redirect("/login");
   }
 
-  const owner = (await response.json()) as OwnerResponse;
+  const owner = (await response.json()) as CurrentUser;
+
+  // مدیر سامانه کافه‌ای برای مدیریت منو ندارد؛ به پنل مدیریت می‌رود.
+  if (owner.role === "admin") {
+    redirect("/admin");
+  }
+  if (!owner.restaurant_slug) {
+    redirect("/login");
+  }
+
+  const slug = owner.restaurant_slug;
   const menuResponse = await fetch(
-    `${apiInternalUrl}/api/v1/restaurants/demo/menu`,
+    `${apiInternalUrl}/api/v1/restaurants/${slug}/menu`,
     { headers: { cookie: cookieHeader }, cache: "no-store" }
   ).catch(() => null);
   const initialMenu = menuResponse?.ok
@@ -48,11 +63,13 @@ export default async function DashboardPage() {
     ?.split(",")[0]
     .trim();
   const protocol = forwardedProtocol === "https" ? "https" : "http";
-  const qrUrl = host ? `${protocol}://${host}/r/demo` : "/r/demo";
+  const qrUrl = host ? `${protocol}://${host}/r/${slug}` : `/r/${slug}`;
 
   return (
     <DashboardClient
-      ownerEmail={owner.email}
+      ownerEmail={owner.email ?? owner.username ?? ""}
+      ownerUsername={owner.username ?? owner.email ?? ""}
+      restaurantSlug={slug}
       qrUrl={qrUrl}
       initialMenu={initialMenu}
     />

@@ -40,14 +40,14 @@ export default function ItemDetailModal({
     >
       {item && (
         <div>
-          <div className="relative h-48 w-full overflow-hidden bg-primary-soft sm:h-56">
+          <div className="relative h-72 w-full overflow-hidden bg-primary-soft sm:h-64">
             {item.image_url ? (
               <Image
                 src={item.image_url}
                 alt={item.name}
                 fill
                 unoptimized
-                className="object-cover"
+                className="object-contain"
               />
             ) : (
               <div className="grid h-full place-items-center bg-[linear-gradient(135deg,var(--primary-soft),var(--surface-muted))] text-primary/60">
@@ -144,7 +144,7 @@ export default function ItemDetailModal({
             )}
 
             <p className="border-t border-line/70 pt-3 text-center text-[10px] text-ink-faint">
-              برای ثبت سفارش، شمارهٔ میز یا آیتم را به کارکنان کافه بگویید.
+              برای ثبت سفارش، شمارهٔ میز یا آیتم را به کارکنان مجموعه بگویید.
             </p>
           </div>
         </div>

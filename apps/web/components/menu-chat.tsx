@@ -12,9 +12,10 @@ import {
 } from "lucide-react";
 
 import ItemDetailModal from "@/components/item-detail-modal";
-import ThemeSwitcher from "@/components/theme-switcher";
+import GuestMenuDrawer from "@/components/guest-menu-drawer";
 import { formatItemPrice } from "@/lib/format";
 import type { MenuItem } from "@/lib/menu-types";
+import type { ThemeId } from "@/lib/theme";
 import type { MenuAssistantState } from "@/lib/use-menu-assistant";
 
 type MenuChatProps = {
@@ -22,6 +23,11 @@ type MenuChatProps = {
   logoUrl?: string | null;
   backgroundUrl?: string | null;
   assistant: MenuAssistantState;
+  /** تم پیش‌فرض انتخابی صاحب کافه برای صفحهٔ مشتری. */
+  defaultTheme?: ThemeId;
+  /** شماره تماس و اینستاگرام مجموعه برای بخش «مجموعه ما»ی کشو. */
+  phone?: string | null;
+  instagram?: string | null;
   onOpenMenu: () => void;
 };
 
@@ -36,6 +42,9 @@ export default function MenuChat({
   logoUrl,
   backgroundUrl,
   assistant,
+  defaultTheme,
+  phone,
+  instagram,
   onOpenMenu,
 }: MenuChatProps) {
   const [draft, setDraft] = useState("");
@@ -134,15 +143,13 @@ export default function MenuChat({
           </div>
 
           <div className="flex shrink-0 items-center gap-1.5">
-            <button
-              type="button"
-              onClick={onOpenMenu}
-              className="inline-flex h-10 items-center gap-1.5 rounded-full bg-primary px-3.5 text-[11px] font-bold text-on-primary shadow-md shadow-primary/20 transition-colors hover:bg-primary-strong"
-            >
-              <BookOpen className="h-4 w-4" aria-hidden="true" />
-              منو
-            </button>
-            <ThemeSwitcher variant="surface" showLabel={false} />
+            <GuestMenuDrawer
+              restaurantName={restaurantName}
+              phone={phone}
+              instagram={instagram}
+              defaultTheme={defaultTheme}
+              onOpenMenu={onOpenMenu}
+            />
           </div>
         </div>
       </header>
@@ -276,7 +283,7 @@ export default function MenuChat({
         )}
       </main>
 
-      <div className="fixed inset-x-0 bottom-0 z-40 px-3 pb-[max(1rem,env(safe-area-inset-bottom))] pt-2">
+      <div className="fixed inset-x-0 bottom-2 z-40 px-3 pb-[max(1rem,env(safe-area-inset-bottom))] pt-2">
         <div className="mx-auto w-full max-w-3xl rounded-[32px] p-4 backdrop-blur-xl">
           <form onSubmit={handleSubmit} className="flex items-center gap-2">
             <input

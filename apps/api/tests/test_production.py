@@ -121,6 +121,54 @@ def test_rate_limit_can_be_disabled(production_client, monkeypatch):
         assert response.status_code == 401
 
 
+def test_login_rate_limit_ignores_spoofed_forwarded_for(production_client, monkeypatch):
+    """رگرسیون امنیتی: هاپ اول X-Forwarded-For از سوی کلاینت قابل جعل است.
+
+    کلید محدودیت نرخ باید هاپ آخر باشد (که پروکسی معتبر خودمان اضافه کرده)،
+    وگرنه مهاجم برای هر تلاش یک IP قلابی می‌فرستد و بلاک نمی‌شود.
+    """
+    monkeypatch.setattr(settings, "TRUST_PROXY_HEADERS", True)
+    reset_rate_limits()
+
+    for _ in range(2):
+        response = production_client.post(
+            "/api/v1/auth/login",
+            json={"email": "owner@cafe.com", "password": "wrong-password"},
+            headers={"X-Forwarded-For": "1.2.3.4, 5.6.7.8"},
+        )
+        assert response.status_code == 401
+
+    # هاپ اول جعلی عوض شده اما هاپ آخر ثابت است؛ باید بلاک شود نه این‌که
+    # با IP قلابی جدید سهمیهٔ تازه بگیرد.
+    blocked = production_client.post(
+        "/api/v1/auth/login",
+        json={"email": "owner@cafe.com", "password": "wrong-password"},
+        headers={"X-Forwarded-For": "9.9.9.9, 5.6.7.8"},
+    )
+
+    assert blocked.status_code == 429
+    assert blocked.json()["detail"] == LOGIN_LIMIT_MESSAGE
+
+
+def test_voice_upload_is_size_capped(production_client, monkeypatch):
+    """رگرسیون DoS: مسیر صوتی باید سقف حجم داشته باشد (تصاویر سقف داشتند)."""
+    monkeypatch.setattr(settings, "MAX_AUDIO_UPLOAD_BYTES", 16)
+    reset_rate_limits()
+
+    too_large = production_client.post(
+        "/api/v1/restaurants/demo/ask-voice",
+        files={"file": ("voice.webm", b"x" * 17, "audio/webm")},
+    )
+    assert too_large.status_code == 413
+    assert "۲۵ مگابایت" not in too_large.json()["detail"] or "مگابایت" in too_large.json()["detail"]
+
+    empty = production_client.post(
+        "/api/v1/restaurants/demo/ask-voice",
+        files={"file": ("voice.webm", b"", "audio/webm")},
+    )
+    assert empty.status_code == 400
+
+
 # --- خطاهای فارسی ---
 
 

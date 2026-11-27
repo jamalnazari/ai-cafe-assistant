@@ -15,15 +15,52 @@ export interface MenuItem {
   is_available: boolean;
 }
 
+export interface FaqItem {
+  question: string;
+  answer: string;
+}
+
 export interface RestaurantMenu {
   restaurant_slug: string;
   restaurant_name: string;
+  /** واژهٔ نمایشی قبل از نام: کافه، رستوران، کافه‌رستوران … */
+  restaurant_label?: string;
   /** لوگوی کافه که صاحب کافه از پنل بارگذاری می‌کند. */
   logo_url?: string | null;
   /** تصویر پس‌زمینهٔ صفحهٔ مشتری. */
   background_url?: string | null;
   /** توضیحات کلی مجموعه که دستیار هوشمند در پاسخ‌ها در نظر می‌گیرد. */
   restaurant_about?: string | null;
+  /** اطلاعات تماس و سئوی محلی (آدرس، تلفن، ساعت کاری، محدودهٔ قیمت). */
+  restaurant_address?: string | null;
+  restaurant_phone?: string | null;
+  /** شناسهٔ اینستاگرام مجموعه بدون @؛ در کشوی «مجموعه ما» نمایش داده می‌شود. */
+  restaurant_instagram?: string | null;
+  opening_hours?: string | null;
+  price_range?: string | null;
+  city?: string | null;
+  cuisine_tags?: string[];
+  faq?: FaqItem[];
+  /** تم پیش‌فرض صفحهٔ مشتری که صاحب کافه انتخاب می‌کند. */
+  restaurant_theme?: "amber" | "purple" | "emerald" | "midnight" | null;
   categories?: string[];
   items: MenuItem[];
+}
+
+/** خلاصهٔ عمومی کافه برای صفحهٔ هاب شهر و نقشهٔ سایت. */
+export interface PublicRestaurant {
+  slug: string;
+  name: string;
+  label_word: string;
+  city?: string | null;
+  address?: string | null;
+  phone?: string | null;
+  opening_hours?: string | null;
+  price_range?: string | null;
+  about?: string | null;
+  cuisine_tags?: string[];
+  logo_url?: string | null;
+  background_url?: string | null;
+  menu_path: string;
+  item_count: number;
 }

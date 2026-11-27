@@ -14,14 +14,20 @@ from app.repositories.auth_repository import SqlAlchemyAuthRepository
 
 class AuthService:
     async def authenticate_owner(
-        self, db: AsyncSession, email: str, password: str
+        self, db: AsyncSession, identifier: str, password: str
     ) -> UserModel | None:
+        """ورود با نام کاربری؛ اگر نام کاربری نبود، ایمیل قدیمی هم پذیرفته می‌شود."""
         repo = SqlAlchemyAuthRepository(db)
-        user = await repo.get_user_by_email(email.strip().lower())
+        identifier = identifier.strip()
+
+        user = await repo.get_user_by_username(identifier)
+        if user is None and "@" in identifier:
+            user = await repo.get_user_by_email(identifier.lower())
 
         if (
             user is None
             or not user.is_owner
+            or not user.is_active
             or not verify_password(password, user.password_hash)
         ):
             return None

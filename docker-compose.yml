@@ -1,0 +1,69 @@
+services:
+  api:
+    build: ./apps/api
+    image: cafe-api
+    restart: unless-stopped
+    env_file: .env
+    # ⚠️ نکتهٔ مهم: در حالت Docker، صفحه‌های سمت سرورِ Next.js به api با هدر
+    # Host: api:8000 درخواست می‌فرستند؛ پس «api,web» باید در ALLOWED_HOSTS
+    # فایل .env باشند وگرنه صفحهٔ مشتری (/r/...) با 404 روبه‌رو می‌شود.
+    environment:
+      ENVIRONMENT: production
+      TRUST_PROXY_HEADERS: "True"
+      # داده‌ها (دیتابیس، تصاویر، پشتیبان‌ها) روی volume پایدار می‌مانند
+      # تا بازسازی کانتینر چیزی را پاک نکند.
+      DATABASE_URL: sqlite+aiosqlite:////data/cafe.db
+      UPLOAD_DIR: /data/uploads/menu_items
+      BRANDING_UPLOAD_DIR: /data/uploads/branding
+      BACKUP_DIR: /data/backups
+    volumes:
+      - cafe-data:/data
+    ports:
+      # فقط روی loopback برای تست از خود سرور (curl 127.0.0.1:8000/health)
+      - "127.0.0.1:8000:8000"
+    healthcheck:
+      test:
+        [
+          "CMD",
+          "python",
+          "-c",
+          "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8000/health', timeout=5)",
+        ]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 20s
+
+  web:
+    build:
+      context: ./apps/web
+      args:
+        NEXT_PUBLIC_SITE_URL: ${NEXT_PUBLIC_SITE_URL}
+    image: cafe-web
+    restart: unless-stopped
+    environment:
+      API_INTERNAL_URL: http://api:8000
+      NEXT_PUBLIC_SITE_URL: ${NEXT_PUBLIC_SITE_URL}
+    depends_on:
+      api:
+        condition: service_healthy
+
+  caddy:
+    image: caddy:2
+    restart: unless-stopped
+    ports:
+      - "80:80"
+      - "443:443"
+      - "443:443/udp"
+    volumes:
+      - ./deploy/Caddyfile.docker:/etc/caddy/Caddyfile:ro
+      - caddy-data:/data
+      - caddy-config:/config
+    depends_on:
+      - api
+      - web
+
+volumes:
+  cafe-data:
+  caddy-data:
+  caddy-config:

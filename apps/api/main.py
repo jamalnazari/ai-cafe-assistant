@@ -1,4 +1,5 @@
 import logging
+import re
 from contextlib import asynccontextmanager
 from typing import Literal
 
@@ -17,28 +18,40 @@ from fastapi.middleware.trustedhost import TrustedHostMiddleware
 from fastapi.responses import JSONResponse
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel, Field
-from sqlalchemy import func, select, text
+from sqlalchemy import func, select, text, update
+from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
-from app.db.init_db import ensure_schema_columns
+from app.db.init_db import ensure_admin_user, ensure_schema_columns, link_orphan_owners
 from app.db.session import AsyncSessionLocal, engine, get_db
+from app.models.auth_session import AuthSessionModel
 from app.models.restaurant import RestaurantModel
 from app.models.menu import MenuItemModel
 from app.models.menu_category import MenuCategoryModel
 from app.models.user import UserModel
 from app.core.config import DEFAULT_OWNER_PASSWORD, settings
-from app.core.security import verify_password
+from app.core.identity import is_placeholder_email, placeholder_email
+from app.core.security import hash_password, verify_password
 from app.core.auth import (
+    assert_can_manage_restaurant,
     auth_service,
     clear_session_cookie,
+    get_current_admin,
     get_current_owner,
     set_session_cookie,
 )
 from app.core.rate_limit import enforce_ask_rate_limit, enforce_login_rate_limit
 from app.providers.llm import LLMUnavailableError
 from app.repositories.menu_repository import SqlAlchemyMenuRepository
+from app.schemas.admin import (
+    AdminMessage,
+    RestaurantAdminOut,
+    RestaurantAdminUpdate,
+    RestaurantCreate,
+)
 from app.schemas.auth import LoginRequest, LoginResponse, OwnerResponse
+from app.schemas.contact import PublicRestaurant, RestaurantProfileOut
 from app.schemas.chat import TextQuestionRequest
 from app.schemas.menu import (
     MenuCategoryCreate,
@@ -92,9 +105,23 @@ async def apply_schema_updates() -> None:
         logger.error("به‌روزرسانی ساختار دیتابیس ناموفق بود: %s", exc)
 
 
+async def ensure_initial_data() -> None:
+    """حساب مدیر و اتصال کاربران قدیمی به کافه‌شان را در استارتاپ تضمین می‌کند."""
+    steps = (ensure_admin_user, link_orphan_owners)
+    for step in steps:
+        async with AsyncSessionLocal() as session:
+            try:
+                await step(session)
+                await session.commit()
+            except Exception as exc:  # noqa: BLE001 - نبود جدول نباید سرویس را بخواباند
+                await session.rollback()
+                logger.warning("آماده‌سازی داده‌های اولیه ناموفق بود: %s", exc)
+
+
 @asynccontextmanager
 async def lifespan(_app: FastAPI):
     await apply_schema_updates()
+    await ensure_initial_data()
     await warn_if_default_owner_password()
     yield
 
@@ -111,6 +138,24 @@ app = FastAPI(
 
 if settings.allowed_hosts:
     app.add_middleware(TrustedHostMiddleware, allowed_hosts=settings.allowed_hosts)
+
+
+@app.middleware("http")
+async def add_security_headers(request: Request, call_next):
+    """هدرهای امنیتی پایه برای جلوگیری از sniffing و iframe شدن پنل."""
+    response = await call_next(request)
+    response.headers.setdefault("X-Content-Type-Options", "nosniff")
+    response.headers.setdefault("X-Frame-Options", "DENY")
+    response.headers.setdefault("Referrer-Policy", "same-origin")
+    response.headers.setdefault(
+        "Permissions-Policy", "camera=(), microphone=(), geolocation=()"
+    )
+    # نام فایل تصاویر آپلودی یکتاست؛ پس می‌توان برای همیشه کش کرد.
+    if request.url.path.startswith("/api/v1/uploads/"):
+        response.headers.setdefault(
+            "Cache-Control", "public, max-age=31536000, immutable"
+        )
+    return response
 
 settings.UPLOAD_DIR.mkdir(parents=True, exist_ok=True)
 settings.BRANDING_UPLOAD_DIR.mkdir(parents=True, exist_ok=True)
@@ -148,6 +193,53 @@ class QuestionResponse(BaseModel):
     recommended_items: list[MenuItemSchema] = Field(default_factory=list)
 
 
+@app.get("/api/v1/public/restaurants", response_model=list[PublicRestaurant])
+async def public_restaurants(
+    db: AsyncSession = Depends(get_db),
+    city: str | None = Query(default=None, max_length=60),
+) -> list[PublicRestaurant]:
+    """فهرست کافه‌های فعال برای صفحهٔ هاب شهر و نقشهٔ سایت (بدون نیاز به ورود)."""
+    stmt = (
+        select(RestaurantModel)
+        .where(RestaurantModel.is_active.is_(True))
+        .order_by(RestaurantModel.id)
+    )
+    if city:
+        stmt = stmt.where(func.coalesce(RestaurantModel.city, "گرگان") == city)
+    restaurants = (await db.execute(stmt)).scalars().all()
+
+    counts = dict(
+        (
+            await db.execute(
+                select(MenuItemModel.restaurant_id, func.count(MenuItemModel.id))
+                .group_by(MenuItemModel.restaurant_id)
+            )
+        ).all()
+    )
+
+    return [
+        PublicRestaurant(
+            slug=restaurant.slug,
+            name=restaurant.name,
+            label_word=restaurant.label_word or "کافه",
+            city=restaurant.city or "گرگان",
+            address=restaurant.address,
+            phone=restaurant.phone,
+            opening_hours=restaurant.opening_hours,
+            price_range=restaurant.price_range,
+            about=restaurant.about_text,
+            cuisine_tags=list(restaurant.cuisine_tags or []),
+            logo_url=branding_image_service.get_image_url(restaurant.logo_filename),
+            background_url=branding_image_service.get_image_url(
+                restaurant.background_filename
+            ),
+            menu_path=f"/r/{restaurant.slug}",
+            item_count=int(counts.get(restaurant.id, 0) or 0),
+        )
+        for restaurant in restaurants
+    ]
+
+
 @app.get("/health")
 async def health_check(db: AsyncSession = Depends(get_db)) -> dict[str, str]:
     """بررسی سلامت سرویس و اتصال دیتابیس (برای مانیتورینگ و پروکسی)."""
@@ -170,26 +262,51 @@ async def login(
     db: AsyncSession = Depends(get_db),
     _rate_limit: None = Depends(enforce_login_rate_limit),
 ) -> LoginResponse:
-    user = await auth_service.authenticate_owner(
-        db, str(body.email), body.password
-    )
+    user = await auth_service.authenticate_owner(db, body.identifier, body.password)
 
     if user is None:
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
-            detail="ایمیل یا رمز عبور اشتباه است.",
+            detail="نام کاربری یا رمز عبور اشتباه است.",
         )
 
     token, expires_at = await auth_service.create_session(db, user)
     set_session_cookie(response, token, expires_at)
-    return LoginResponse(message="ورود موفقیت‌آمیز بود.", email=user.email)
+    payload = await build_user_response(db, user)
+    return LoginResponse(message="ورود موفقیت‌میز بود.", **payload.model_dump())
+
+
+async def build_user_response(
+    db: AsyncSession, user: UserModel
+) -> OwnerResponse:
+    """اطلاعات کاربر همراه با کافهٔ او (برای هدایت پنل در فرانت‌اند)."""
+    restaurant = None
+    if user.restaurant_id is not None:
+        restaurant = await db.scalar(
+            select(RestaurantModel).where(RestaurantModel.id == user.restaurant_id)
+        )
+
+    return OwnerResponse(
+        username=user.username,
+        # نشانی جای‌نگهدار (مدیر یا کاربر ساخته‌شده در پنل) نمایش داده نمی‌شود.
+        email=(
+            None
+            if user.role == "admin" or is_placeholder_email(user.email)
+            else user.email
+        ),
+        role=user.role,
+        restaurant_slug=restaurant.slug if restaurant else None,
+        restaurant_name=restaurant.name if restaurant else None,
+        restaurant_label=(restaurant.label_word or "کافه") if restaurant else None,
+    )
 
 
 @app.get("/api/v1/auth/me", response_model=OwnerResponse)
 async def get_authenticated_owner(
     current_owner: UserModel = Depends(get_current_owner),
+    db: AsyncSession = Depends(get_db),
 ) -> OwnerResponse:
-    return OwnerResponse(email=current_owner.email)
+    return await build_user_response(db, current_owner)
 
 
 @app.post("/api/v1/auth/logout")
@@ -214,6 +331,20 @@ async def get_restaurant_or_404(
     if restaurant is None:
         raise HTTPException(status_code=404, detail="کافه یافت نشد.")
     return restaurant
+
+
+async def guard_owner_restaurant(
+    restaurant_slug: str,
+    db: AsyncSession = Depends(get_db),
+    current_user: UserModel = Depends(get_current_owner),
+) -> None:
+    """صاحب کافه فقط کافهٔ خودش را مدیریت می‌کند؛ مدیر کل همه را."""
+    restaurant = await db.scalar(
+        select(RestaurantModel).where(RestaurantModel.slug == restaurant_slug)
+    )
+    if restaurant is None:
+        raise HTTPException(status_code=404, detail="کافه یافت نشد.")
+    assert_can_manage_restaurant(current_user, restaurant.id)
 
 
 async def replace_branding_image(
@@ -249,13 +380,15 @@ async def clear_branding_image(
     branding_image_service.delete_image(previous_filename)
 
 
-@app.patch("/api/v1/restaurants/{restaurant_slug}")
+@app.patch(
+    "/api/v1/restaurants/{restaurant_slug}", response_model=RestaurantProfileOut
+)
 async def update_restaurant(
     restaurant_slug: str,
     body: RestaurantUpdate,
     db: AsyncSession = Depends(get_db),
-    _current_owner: UserModel = Depends(get_current_owner),
-) -> dict[str, str | None]:
+    _owner_guard: None = Depends(guard_owner_restaurant),
+) -> RestaurantProfileOut:
     """به‌روزرسانی نام کافه و/یا توضیحات «دربارهٔ مجموعه»."""
     restaurant = await get_restaurant_or_404(db, restaurant_slug)
 
@@ -264,13 +397,19 @@ async def update_restaurant(
     if "about" in body.model_fields_set:
         # مقدار خالی (None پس از اعتبارسنجی) یعنی پاک‌کردن توضیحات.
         restaurant.about_text = body.about
+    if "default_theme" in body.model_fields_set:
+        # null یعنی برگشت به تم پیش‌فرض سراسری.
+        restaurant.default_theme = body.default_theme
+    apply_contact_fields(restaurant, body)
 
     await db.commit()
-    return {
-        "message": "اطلاعات کافه به‌روزرسانی شد.",
-        "name": restaurant.name,
-        "about": restaurant.about_text,
-    }
+    return RestaurantProfileOut(
+        message="اطلاعات کافه به‌روزرسانی شد.",
+        name=restaurant.name,
+        about=restaurant.about_text,
+        default_theme=restaurant.default_theme,
+        **contact_fields_payload(restaurant),
+    )
 
 
 @app.post("/api/v1/restaurants/{restaurant_slug}/logo")
@@ -278,7 +417,7 @@ async def upload_restaurant_logo(
     restaurant_slug: str,
     file: UploadFile = File(...),
     db: AsyncSession = Depends(get_db),
-    _current_owner: UserModel = Depends(get_current_owner),
+    _owner_guard: None = Depends(guard_owner_restaurant),
 ) -> dict[str, str | None]:
     restaurant = await get_restaurant_or_404(db, restaurant_slug)
     filename = await replace_branding_image(db, restaurant, "logo_filename", file)
@@ -292,7 +431,7 @@ async def upload_restaurant_logo(
 async def delete_restaurant_logo(
     restaurant_slug: str,
     db: AsyncSession = Depends(get_db),
-    _current_owner: UserModel = Depends(get_current_owner),
+    _owner_guard: None = Depends(guard_owner_restaurant),
 ) -> dict[str, str | None]:
     restaurant = await get_restaurant_or_404(db, restaurant_slug)
     await clear_branding_image(db, restaurant, "logo_filename")
@@ -304,7 +443,7 @@ async def upload_restaurant_background(
     restaurant_slug: str,
     file: UploadFile = File(...),
     db: AsyncSession = Depends(get_db),
-    _current_owner: UserModel = Depends(get_current_owner),
+    _owner_guard: None = Depends(guard_owner_restaurant),
 ) -> dict[str, str | None]:
     restaurant = await get_restaurant_or_404(db, restaurant_slug)
     filename = await replace_branding_image(
@@ -320,7 +459,7 @@ async def upload_restaurant_background(
 async def delete_restaurant_background(
     restaurant_slug: str,
     db: AsyncSession = Depends(get_db),
-    _current_owner: UserModel = Depends(get_current_owner),
+    _owner_guard: None = Depends(guard_owner_restaurant),
 ) -> dict[str, str | None]:
     restaurant = await get_restaurant_or_404(db, restaurant_slug)
     await clear_branding_image(db, restaurant, "background_filename")
@@ -363,7 +502,7 @@ async def create_menu_category(
     restaurant_slug: str,
     category_data: MenuCategoryCreate,
     db: AsyncSession = Depends(get_db),
-    _current_owner: UserModel = Depends(get_current_owner),
+    _owner_guard: None = Depends(guard_owner_restaurant),
 ) -> dict[str, str]:
     result = await db.execute(
         select(RestaurantModel).where(RestaurantModel.slug == restaurant_slug)
@@ -409,7 +548,7 @@ async def delete_menu_category(
         description="نام دسته‌بندی مقصد هنگام استفاده از استراتژی move",
     ),
     db: AsyncSession = Depends(get_db),
-    _current_owner: UserModel = Depends(get_current_owner),
+    _owner_guard: None = Depends(guard_owner_restaurant),
 ) -> dict[str, object]:
     restaurant_result = await db.execute(
         select(RestaurantModel)
@@ -494,7 +633,7 @@ async def create_menu_item(
     restaurant_slug: str,
     item_data: MenuItemCreate,
     db: AsyncSession = Depends(get_db),
-    _current_owner: UserModel = Depends(get_current_owner),
+    _owner_guard: None = Depends(guard_owner_restaurant),
 ):
     result = await db.execute(
         select(RestaurantModel).where(RestaurantModel.slug == restaurant_slug)
@@ -551,7 +690,7 @@ async def update_menu_item(
     item_key: str,
     item_data: MenuItemUpdate,
     db: AsyncSession = Depends(get_db),
-    _current_owner: UserModel = Depends(get_current_owner),
+    _owner_guard: None = Depends(guard_owner_restaurant),
 ) -> dict[str, str]:
     result = await db.execute(
         select(MenuItemModel)
@@ -593,7 +732,7 @@ async def upload_menu_item_image(
     item_key: str,
     file: UploadFile = File(...),
     db: AsyncSession = Depends(get_db),
-    _current_owner: UserModel = Depends(get_current_owner),
+    _owner_guard: None = Depends(guard_owner_restaurant),
 ) -> dict[str, str]:
     result = await db.execute(
         select(MenuItemModel)
@@ -624,13 +763,46 @@ async def upload_menu_item_image(
     }
 
 
+# --- حذف تصویر آیتم توسط مالک (آیتم و بقیهٔ مشخصات دست‌نخورده می‌مانند) ---
+@app.delete("/api/v1/restaurants/{restaurant_slug}/items/{item_key}/image")
+async def delete_menu_item_image(
+    restaurant_slug: str,
+    item_key: str,
+    db: AsyncSession = Depends(get_db),
+    _owner_guard: None = Depends(guard_owner_restaurant),
+) -> dict[str, str]:
+    result = await db.execute(
+        select(MenuItemModel)
+        .join(RestaurantModel)
+        .where(
+            RestaurantModel.slug == restaurant_slug,
+            MenuItemModel.item_key == item_key,
+        )
+    )
+    target_item = result.scalar_one_or_none()
+    if target_item is None:
+        raise HTTPException(status_code=404, detail="آیتم یافت نشد.")
+    if not target_item.image_filename:
+        raise HTTPException(status_code=404, detail="این آیتم تصویری ندارد.")
+
+    old_filename = target_item.image_filename
+    target_item.image_filename = None
+    try:
+        await db.commit()
+    except Exception:
+        await db.rollback()
+        raise
+    menu_image_service.delete_image(old_filename)
+    return {"message": "تصویر آیتم حذف شد."}
+
+
 # --- حذف آیتم از منو ---
 @app.delete("/api/v1/restaurants/{restaurant_slug}/items/{item_key}")
 async def delete_menu_item(
     restaurant_slug: str,
     item_key: str,
     db: AsyncSession = Depends(get_db),
-    _current_owner: UserModel = Depends(get_current_owner),
+    _owner_guard: None = Depends(guard_owner_restaurant),
 ):
     result = await db.execute(
         select(RestaurantModel)
@@ -705,13 +877,30 @@ async def ask_voice_question(
     if menu is None:
         raise HTTPException(status_code=404, detail="کافه یافت نشد.")
 
-    audio_bytes = await file.read()
+    # خواندن با سقف حجم: جلوگیری از پر شدن حافظه با فایل صوتی بی‌نهایت بزرگ.
+    audio_bytes = await file.read(settings.MAX_AUDIO_UPLOAD_BYTES + 1)
+    if not audio_bytes:
+        raise HTTPException(status_code=400, detail="فایل صوتی خالی است.")
+    if len(audio_bytes) > settings.MAX_AUDIO_UPLOAD_BYTES:
+        raise HTTPException(
+            status_code=status.HTTP_413_CONTENT_TOO_LARGE,
+            detail="حجم فایل صوتی نباید بیشتر از ۲۵ مگابایت باشد.",
+        )
+
     try:
         transcript, answer = await assistant_service.answer_voice_question(
             menu, audio_bytes, file.filename or "audio.webm"
         )
+    except HTTPException:
+        raise
     except LLMUnavailableError as exc:
         logger.warning("دستیار نتوانست پاسخ صوتی تولید کند: %s", exc)
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail="دستیار هوشمند موقتاً در دسترس نیست؛ لطفاً چند لحظه بعد دوباره بپرسید.",
+        ) from exc
+    except Exception as exc:  # noqa: BLE001 - هر خطای تبدیل صوت (STT) هم ۵۰۳ می‌شود
+        logger.warning("تبدیل صوت به متن ناموفق بود: %s", exc)
         raise HTTPException(
             status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
             detail="دستیار هوشمند موقتاً در دسترس نیست؛ لطفاً چند لحظه بعد دوباره بپرسید.",
@@ -723,3 +912,365 @@ async def ask_voice_question(
         answer=answer,
         recommended_items=recommended_items,
     )
+
+# --- پنل مدیر سامانه: مدیریت کافه‌ها و کاربران ---
+def slugify_value(value: str) -> str:
+    """از نام کافه یک نشانی انگلیسی می‌سازد؛ اگر نام فارسی بود، «cafe» می‌شود."""
+    lowered = value.strip().lower()
+    ascii_part = "".join(
+        char if (char.isalnum() and char.isascii()) else "-" for char in lowered
+    )
+    slug = re.sub(r"-+", "-", ascii_part).strip("-")
+    if len(slug) < 3:
+        slug = f"cafe-{slug}".strip("-")
+    return slug[:40]
+
+
+async def unique_restaurant_slug(
+    db: AsyncSession, base: str, exclude_id: int | None = None
+) -> str:
+    base = (base or "cafe")[:40] or "cafe"
+    candidate = base
+    index = 1
+    while True:
+        existing = await db.scalar(
+            select(RestaurantModel).where(RestaurantModel.slug == candidate)
+        )
+        if existing is None or existing.id == exclude_id:
+            return candidate
+        # سقف تلاش‌ها تا در بدترین حالت هم درخواستِ ساخت کافه معلق نشود.
+        if index > 200:
+            raise HTTPException(
+                status_code=409,
+                detail="ساخت نشانی یکتا ممکن نشد؛ نام دیگری برای کافه انتخاب کنید.",
+            )
+        suffix = f"-{index}"
+        # برای پسوند جا رزرو می‌شود؛ وگرنه برش ۴۰ نویسه‌ای پسوند را حذف می‌کرد،
+        # نامزد تکراری همیشه رد می‌شد و حلقه بی‌پایان می‌شد.
+        candidate = f"{base[: 40 - len(suffix)]}{suffix}"
+        index += 1
+
+
+async def owner_of_restaurant(
+    db: AsyncSession, restaurant_id: int
+) -> UserModel | None:
+    return await db.scalar(
+        select(UserModel)
+        .where(
+            UserModel.restaurant_id == restaurant_id,
+            UserModel.role == "owner",
+        )
+        .order_by(UserModel.id)
+    )
+
+
+async def revoke_user_sessions(db: AsyncSession, user_id: int) -> None:
+    await db.execute(
+        update(AuthSessionModel)
+        .where(
+            AuthSessionModel.user_id == user_id,
+            AuthSessionModel.revoked_at.is_(None),
+        )
+        .values(revoked_at=func.now())
+    )
+
+
+# فیلدهای تماس/سئوی محلی که هم مدیر و هم صاحب کافه می‌توانند ویرایش کنند.
+CONTACT_FIELDS = (
+    "address",
+    "phone",
+    "instagram",
+    "opening_hours",
+    "price_range",
+    "city",
+    "cuisine_tags",
+    "faq",
+)
+
+
+def contact_fields_payload(source) -> dict:
+    """اطلاعات تماس را به شکل قابل انتشار در API برمی‌گرداند."""
+    faq = []
+    for item in getattr(source, "faq", None) or []:
+        if isinstance(item, dict) and item.get("question") and item.get("answer"):
+            faq.append(
+                {"question": str(item["question"]), "answer": str(item["answer"])}
+            )
+    return {
+        "address": getattr(source, "address", None),
+        "phone": getattr(source, "phone", None),
+        "instagram": getattr(source, "instagram", None),
+        "opening_hours": getattr(source, "opening_hours", None),
+        "price_range": getattr(source, "price_range", None),
+        "city": getattr(source, "city", None) or "گرگان",
+        "cuisine_tags": list(getattr(source, "cuisine_tags", None) or []),
+        "faq": faq,
+    }
+
+
+def apply_contact_fields(restaurant: RestaurantModel, body) -> None:
+    """فقط فیلدهایی را که در بدنهٔ درخواست آمده‌اند روی کافه می‌نویسد."""
+    for field in CONTACT_FIELDS:
+        if field not in body.model_fields_set:
+            continue
+        value = getattr(body, field)
+        if field == "faq" and value is not None:
+            value = [item.model_dump() for item in value]
+        setattr(restaurant, field, value)
+
+
+async def to_admin_out(
+    db: AsyncSession, restaurant: RestaurantModel
+) -> RestaurantAdminOut:
+    owner = await owner_of_restaurant(db, restaurant.id)
+    item_count = await db.scalar(
+        select(func.count(MenuItemModel.id)).where(
+            MenuItemModel.restaurant_id == restaurant.id
+        )
+    )
+    category_count = await db.scalar(
+        select(func.count(MenuCategoryModel.id)).where(
+            MenuCategoryModel.restaurant_id == restaurant.id
+        )
+    )
+
+    return RestaurantAdminOut(
+        id=restaurant.id,
+        slug=restaurant.slug,
+        name=restaurant.name,
+        label_word=restaurant.label_word or "کافه",
+        about=restaurant.about_text,
+        is_active=restaurant.is_active,
+        owner_username=owner.username if owner else None,
+        owner_is_active=bool(owner.is_active) if owner else True,
+        item_count=int(item_count or 0),
+        category_count=int(category_count or 0),
+        logo_url=branding_image_service.get_image_url(restaurant.logo_filename),
+        background_url=branding_image_service.get_image_url(
+            restaurant.background_filename
+        ),
+        menu_path=f"/r/{restaurant.slug}",
+        **{
+            key: value
+            for key, value in contact_fields_payload(restaurant).items()
+            if key != "faq"
+        },
+        faq=contact_fields_payload(restaurant)["faq"],
+        faq_question_count=len(contact_fields_payload(restaurant)["faq"]),
+    )
+
+
+async def get_restaurant_by_id_or_404(
+    db: AsyncSession, restaurant_id: int
+) -> RestaurantModel:
+    restaurant = await db.get(RestaurantModel, restaurant_id)
+    if restaurant is None:
+        raise HTTPException(status_code=404, detail="کافه یافت نشد.")
+    return restaurant
+
+
+async def assert_username_available(
+    db: AsyncSession, username: str, allow_user_id: int | None = None
+) -> None:
+    existing = await db.scalar(
+        select(UserModel).where(func.lower(UserModel.username) == username.lower())
+    )
+    if existing is not None and existing.id != allow_user_id:
+        raise HTTPException(
+            status_code=409, detail="این نام کاربری قبلاً ثبت شده است."
+        )
+
+
+@app.get("/api/v1/admin/restaurants", response_model=list[RestaurantAdminOut])
+async def admin_list_restaurants(
+    db: AsyncSession = Depends(get_db),
+    _admin: UserModel = Depends(get_current_admin),
+) -> list[RestaurantAdminOut]:
+    result = await db.execute(select(RestaurantModel).order_by(RestaurantModel.id))
+    restaurants = result.scalars().all()
+    return [await to_admin_out(db, restaurant) for restaurant in restaurants]
+
+
+@app.post(
+    "/api/v1/admin/restaurants",
+    response_model=RestaurantAdminOut,
+    status_code=status.HTTP_201_CREATED,
+)
+async def admin_create_restaurant(
+    body: RestaurantCreate,
+    db: AsyncSession = Depends(get_db),
+    _admin: UserModel = Depends(get_current_admin),
+) -> RestaurantAdminOut:
+    await assert_username_available(db, body.owner_username)
+
+    slug = await unique_restaurant_slug(
+        db, body.slug or slugify_value(body.name)
+    )
+    restaurant = RestaurantModel(
+        slug=slug,
+        name=body.name,
+        label_word=body.label_word,
+        about_text=body.about,
+        city=body.city or "گرگان",
+        address=body.address,
+        phone=body.phone,
+        opening_hours=body.opening_hours,
+        price_range=body.price_range,
+        cuisine_tags=body.cuisine_tags,
+        faq=[item.model_dump() for item in body.faq] if body.faq else None,
+        is_active=True,
+    )
+    db.add(restaurant)
+    await db.flush()
+
+    owner = UserModel(
+        username=body.owner_username,
+        email=placeholder_email(body.owner_username),
+        password_hash=hash_password(body.owner_password),
+        role="owner",
+        restaurant_id=restaurant.id,
+        is_owner=True,
+        is_active=True,
+    )
+    db.add(owner)
+    try:
+        await db.commit()
+
+    except IntegrityError as exc:
+        await db.rollback()
+        logger.warning("ساخت کافه ناموفق بود: %s", exc)
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail="این نام کاربری یا نشانی کافه قبلاً ثبت شده است؛ مقدار دیگری انتخاب کنید.",
+        ) from exc
+
+    except IntegrityError:
+        # تداخل محدودیت دیتابیس (مثلاً نام کاربری تکراری در لحظهٔ آخر) با
+        # پیام فارسی مشخص گزارش می‌شود، نه خطای عمومی ۵۰۰.
+        await db.rollback()
+        logger.warning(
+            "ثبت کافه با خطای محدودیت دیتابیس ناموفق بود", exc_info=True
+        )
+        raise HTTPException(
+            status_code=409,
+            detail=(
+                "ثبت کافه ممکن نشد؛ نام کاربری یا نشانی تکراری است یا یکی از "
+                "مقادیر فرم با محدودیت‌های ثبت هم‌خوان نیست."
+            ),
+        )
+
+    await db.refresh(restaurant)
+
+    return await to_admin_out(db, restaurant)
+
+
+@app.patch(
+    "/api/v1/admin/restaurants/{restaurant_id}", response_model=RestaurantAdminOut
+)
+async def admin_update_restaurant(
+    restaurant_id: int,
+    body: RestaurantAdminUpdate,
+    db: AsyncSession = Depends(get_db),
+    _admin: UserModel = Depends(get_current_admin),
+) -> RestaurantAdminOut:
+    restaurant = await get_restaurant_by_id_or_404(db, restaurant_id)
+    owner = await owner_of_restaurant(db, restaurant.id)
+
+    if body.name is not None:
+        restaurant.name = body.name
+    if body.label_word is not None:
+        restaurant.label_word = body.label_word
+    if "about" in body.model_fields_set:
+        restaurant.about_text = body.about
+    apply_contact_fields(restaurant, body)
+    if body.slug is not None and body.slug != restaurant.slug:
+        restaurant.slug = await unique_restaurant_slug(
+            db, body.slug, exclude_id=restaurant.id
+        )
+
+    if body.is_active is not None:
+        restaurant.is_active = body.is_active
+        if owner is not None:
+            # کافهٔ غیرفعال یعنی صاحبش هم نتواند وارد شود و QR بی‌اعتبار شود.
+            owner.is_active = body.is_active
+            if not body.is_active:
+                await revoke_user_sessions(db, owner.id)
+
+    if body.owner_username is not None:
+        if owner is None:
+            raise HTTPException(
+                status_code=400,
+                detail="این کافه کاربر ندارد؛ ابتدا برای آن کاربر تعریف کنید.",
+            )
+        await assert_username_available(
+            db, body.owner_username, allow_user_id=owner.id
+        )
+        owner.username = body.owner_username
+        if is_placeholder_email(owner.email):
+            owner.email = placeholder_email(body.owner_username)
+
+    if body.owner_password is not None:
+        if owner is None:
+            raise HTTPException(
+                status_code=400,
+                detail="این کافه کاربر ندارد؛ ابتدا برای آن کاربر تعریف کنید.",
+            )
+        owner.password_hash = hash_password(body.owner_password)
+        # با تغییر رمز، نشست‌های قبلی باطل می‌شوند.
+        await revoke_user_sessions(db, owner.id)
+
+    try:
+        await db.commit()
+    except IntegrityError as exc:
+        await db.rollback()
+        logger.warning("ویرایش کافه ناموفق بود: %s", exc)
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail="این نام کاربری یا نشانی کافه قبلاً ثبت شده است؛ مقدار دیگری انتخاب کنید.",
+        ) from exc
+    await db.refresh(restaurant)
+    return await to_admin_out(db, restaurant)
+
+
+@app.delete(
+    "/api/v1/admin/restaurants/{restaurant_id}", response_model=AdminMessage
+)
+async def admin_delete_restaurant(
+    restaurant_id: int,
+    db: AsyncSession = Depends(get_db),
+    _admin: UserModel = Depends(get_current_admin),
+) -> AdminMessage:
+    """حذف نرم: کافه و کاربرش غیرفعال می‌شوند تا QR و ورود بی‌اعتبار شود."""
+    restaurant = await get_restaurant_by_id_or_404(db, restaurant_id)
+    restaurant.is_active = False
+
+    owner = await owner_of_restaurant(db, restaurant.id)
+    if owner is not None:
+        owner.is_active = False
+        await revoke_user_sessions(db, owner.id)
+
+    await db.commit()
+    return AdminMessage(
+        message="کافه حذف شد؛ کد QR آن دیگر کار نمی‌کند و ورود کاربر بسته شد."
+    )
+
+
+@app.post(
+    "/api/v1/admin/restaurants/{restaurant_id}/restore",
+    response_model=RestaurantAdminOut,
+)
+async def admin_restore_restaurant(
+    restaurant_id: int,
+    db: AsyncSession = Depends(get_db),
+    _admin: UserModel = Depends(get_current_admin),
+) -> RestaurantAdminOut:
+    restaurant = await get_restaurant_by_id_or_404(db, restaurant_id)
+    restaurant.is_active = True
+
+    owner = await owner_of_restaurant(db, restaurant.id)
+    if owner is not None:
+        owner.is_active = True
+
+    await db.commit()
+    await db.refresh(restaurant)
+    return await to_admin_out(db, restaurant)

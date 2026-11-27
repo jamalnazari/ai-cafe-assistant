@@ -79,12 +79,20 @@ limiter = SlidingWindowRateLimiter()
 
 
 def client_identifier(request: Request) -> str:
-    """IP مشتری؛ اگر پشت پروکسی معتبر باشد از X-Forwarded-For خوانده می‌شود."""
+    """IP مشتری؛ اگر پشت پروکسی معتبر باشد از X-Forwarded-For خوانده می‌شود.
+
+    نکتهٔ امنیتی: همیشه «آخرین» هاپِ لیست خوانده می‌شود، نه اولین. وقتی پشت یک
+    پروکسی معتبر هستیم که X-Forwarded-For را append می‌کند، عنصر آخر همان مقداری
+    است که پروکسیِ خودمان اضافه کرده و کلاینت نمی‌تواند آن را جعل کند؛ اما عنصر
+    اول را مشتری می‌تواند تا دلش بخواهد دست‌کاری کند (دور زدن محدودیت نرخ،
+    حملات brute-force و مصرف هزینهٔ API). درخواست‌های بی‌واسطه هم به هدر کاری
+    ندارند.
+    """
     if settings.TRUST_PROXY_HEADERS:
         forwarded = request.headers.get("x-forwarded-for", "")
-        first_hop = forwarded.split(",")[0].strip()
-        if first_hop:
-            return first_hop
+        last_hop = forwarded.split(",")[-1].strip()
+        if last_hop:
+            return last_hop
     if request.client is not None and request.client.host:
         return request.client.host
     return "unknown"

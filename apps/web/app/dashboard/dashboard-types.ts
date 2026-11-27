@@ -8,12 +8,30 @@ export interface MenuItem {
   price?: { amount: number; currency: string } | null;
 }
 
+export interface FaqItem {
+  question: string;
+  answer: string;
+}
+
 export interface RestaurantMenu {
   restaurant_slug: string;
   restaurant_name: string;
+  restaurant_label?: string;
   logo_url?: string | null;
   background_url?: string | null;
   restaurant_about?: string | null;
+  // اطلاعات تماس و سئوی محلی
+  restaurant_address?: string | null;
+  restaurant_phone?: string | null;
+  /** شناسهٔ اینستاگرام مجموعه بدون @؛ در کشوی صفحهٔ مشتری نمایش داده می‌شود. */
+  restaurant_instagram?: string | null;
+  opening_hours?: string | null;
+  price_range?: string | null;
+  city?: string | null;
+  cuisine_tags?: string[];
+  faq?: FaqItem[];
+  /** تم پیش‌فرض صفحهٔ مشتری که صاحب کافه انتخاب کرده است. */
+  restaurant_theme?: "amber" | "purple" | "emerald" | "midnight" | null;
   categories?: string[];
   items: MenuItem[];
 }

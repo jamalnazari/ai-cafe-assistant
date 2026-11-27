@@ -26,6 +26,14 @@ Thumbs.db
 backups/
 apps/api/backups/
 
-# SQLite runtime artifacts (WAL mode)
-*.db-wal
+# Test artifacts
+.pytest-tmp-env/
+pytest-of-*/
+
+# Local SQLite databases
+*.db
 *.db-shm
+*.db-wal
+
+# Temporary files
+staged.txt
