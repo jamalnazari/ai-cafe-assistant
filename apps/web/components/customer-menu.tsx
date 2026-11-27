@@ -102,7 +102,7 @@ export default function CustomerMenu({
           <div className="absolute inset-0 bg-gradient-to-b from-canvas/85 via-canvas/20 to-canvas/80" />
         </div>
       )}
-      <header className="sticky top-0 z-40 border-b border-line/60 bg-canvas/85 backdrop-blur-xl">
+      <header className="sticky top-0 z-40 backdrop-blur-xl">
         <div className="mx-auto flex h-16 max-w-5xl items-center gap-2.5 px-4">
           <button
             type="button"
