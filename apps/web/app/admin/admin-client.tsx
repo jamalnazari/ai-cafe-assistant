@@ -1,6 +1,6 @@
 "use client";
 
-import React, { useMemo, useState } from "react";
+import React, { useEffect, useMemo, useState } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { QRCodeSVG } from "qrcode.react";
@@ -10,6 +10,7 @@ import {
   Coffee,
   Copy,
   ExternalLink,
+  KeyRound,
   LoaderCircle,
   LogOut,
   Pencil,
@@ -32,7 +33,13 @@ import { readApiError as getError } from "@/lib/api-errors";
 import { cn } from "@/lib/cn";
 import { formatNumber } from "@/lib/format";
 
-import { LABEL_SUGGESTIONS, type AdminRestaurant, type CafeFaq } from "./types";
+import {
+  LABEL_SUGGESTIONS,
+  type AdminRestaurant,
+  type CafeFaq,
+  type LlmApiKey,
+  type LlmKeysList,
+} from "./types";
 
 type AdminClientProps = {
   initialRestaurants: AdminRestaurant[];
@@ -146,6 +153,181 @@ export default function AdminClient({
   const [deleteTarget, setDeleteTarget] = useState<AdminRestaurant | null>(null);
   const [deleting, setDeleting] = useState(false);
   const [busyId, setBusyId] = useState<number | null>(null);
+
+  // --- کلیدهای سرویس هوش مصنوعی ---
+  const [llmKeys, setLlmKeys] = useState<LlmApiKey[]>([]);
+  const [racingEnabled, setRacingEnabled] = useState(false);
+  // true اولیه برای نمایش اسپینر اولین دریافت (بدون setState داخل افکت)
+  const [loadingKeys, setLoadingKeys] = useState(true);
+  const [keyModalOpen, setKeyModalOpen] = useState(false);
+  const [keyEditing, setKeyEditing] = useState<LlmApiKey | null>(null);
+  const [keyForm, setKeyForm] = useState({
+    label: "",
+    base_url: "",
+    api_key: "",
+    model: "",
+  });
+  const [keySaving, setKeySaving] = useState(false);
+  const [keyError, setKeyError] = useState<string | null>(null);
+  const [keyBusy, setKeyBusy] = useState<number | null>(null);
+  const [pendingKeyDelete, setPendingKeyDelete] = useState<number | null>(null);
+
+  const fetchKeys = async () => {
+    try {
+      const response = await fetch("/api/v1/admin/llm-keys", {
+        cache: "no-store",
+        credentials: "same-origin",
+      });
+      if (response.status === 401) {
+        router.replace("/login");
+        return;
+      }
+      if (!response.ok) {
+        throw new Error(await getError(response, "دریافت کلیدها ناموفق بود."));
+      }
+      const data = (await response.json()) as LlmKeysList;
+      setLlmKeys(data.keys);
+      setRacingEnabled(data.racing_enabled);
+    } catch (error) {
+      push(error instanceof Error ? error.message : "خطا در دریافت کلیدها", "error");
+    } finally {
+      setLoadingKeys(false);
+    }
+  };
+
+  useEffect(() => {
+    // دریافت اولین فهرست؛ setStateها بعد از await اجرا می‌شوند نه همگام.
+    // eslint-disable-next-line react-hooks/set-state-in-effect
+    void fetchKeys();
+    // فقط در اولین نمایش؛ بعد از هر تغییر خودمان fetchKeys را صدا می‌زنیم.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
+  const openKeyCreate = () => {
+    setKeyEditing(null);
+    setKeyForm({ label: "", base_url: "", api_key: "", model: "" });
+    setKeyError(null);
+    setKeyModalOpen(true);
+  };
+
+  const openKeyEdit = (item: LlmApiKey) => {
+    setKeyEditing(item);
+    setKeyForm({
+      label: item.label ?? "",
+      base_url: item.base_url,
+      // کلید فعلی ماسک‌شده است؛ خالی یعنی همان قبلی بماند.
+      api_key: "",
+      model: item.model ?? "",
+    });
+    setKeyError(null);
+    setKeyModalOpen(true);
+  };
+
+  const submitKey = async (event: React.FormEvent) => {
+    event.preventDefault();
+    if (keySaving) return;
+    if (!keyForm.base_url.trim()) {
+      setKeyError("نشانی سرویس (Base URL) را وارد کنید.");
+      return;
+    }
+    if (!keyEditing && keyForm.api_key.trim().length < 8) {
+      setKeyError("کلید API را وارد کنید (حداقل ۸ نویسه).");
+      return;
+    }
+    setKeySaving(true);
+    setKeyError(null);
+    try {
+      const body: Record<string, unknown> = {
+        label: keyForm.label.trim() || null,
+        base_url: keyForm.base_url.trim(),
+        model: keyForm.model.trim() || null,
+      };
+      if (keyForm.api_key.trim()) {
+        body.api_key = keyForm.api_key.trim();
+      }
+      const response = await fetch(
+        keyEditing
+          ? `/api/v1/admin/llm-keys/${keyEditing.id}`
+          : "/api/v1/admin/llm-keys",
+        {
+          method: keyEditing ? "PATCH" : "POST",
+          headers: { "Content-Type": "application/json" },
+          credentials: "same-origin",
+          body: JSON.stringify(body),
+        },
+      );
+      if (response.status === 401) {
+        router.replace("/login");
+        return;
+      }
+      if (!response.ok) {
+        throw new Error(await getError(response, "ذخیرهٔ کلید ناموفق بود."));
+      }
+      setKeyModalOpen(false);
+      push(keyEditing ? "کلید ویرایش شد." : "کلید اضافه شد و در مسابقهٔ پاسخ شرکت می‌کند.");
+      await fetchKeys();
+    } catch (error) {
+      setKeyError(error instanceof Error ? error.message : "ذخیرهٔ کلید ناموفق بود.");
+    } finally {
+      setKeySaving(false);
+    }
+  };
+
+  const toggleKey = async (item: LlmApiKey) => {
+    if (keyBusy) return;
+    setKeyBusy(item.id);
+    try {
+      const response = await fetch(`/api/v1/admin/llm-keys/${item.id}`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        credentials: "same-origin",
+        body: JSON.stringify({ is_active: !item.is_active }),
+      });
+      if (response.status === 401) {
+        router.replace("/login");
+        return;
+      }
+      if (!response.ok) {
+        throw new Error(await getError(response, "تغییر وضعیت کلید ناموفق بود."));
+      }
+      await fetchKeys();
+      push(item.is_active ? "کلید غیرفعال شد." : "کلید فعال شد.");
+    } catch (error) {
+      push(error instanceof Error ? error.message : "تغییر وضعیت ناموفق بود.", "error");
+    } finally {
+      setKeyBusy(null);
+    }
+  };
+
+  const confirmKeyDelete = async (item: LlmApiKey) => {
+    // کلیک اول: تایید بگیرد؛ کلیک دوم: حذف واقعی
+    if (pendingKeyDelete !== item.id) {
+      setPendingKeyDelete(item.id);
+      return;
+    }
+    if (keyBusy) return;
+    setKeyBusy(item.id);
+    try {
+      const response = await fetch(`/api/v1/admin/llm-keys/${item.id}`, {
+        method: "DELETE",
+        credentials: "same-origin",
+      });
+      if (response.status === 401) {
+        router.replace("/login");
+        return;
+      }
+      if (!response.ok) {
+        throw new Error(await getError(response, "حذف کلید ناموفق بود."));
+      }
+      setPendingKeyDelete(null);
+      push("کلید حذف شد.");
+      await fetchKeys();
+    } catch (error) {
+      push(error instanceof Error ? error.message : "حذف کلید ناموفق بود.", "error");
+    } finally {
+      setKeyBusy(null);
+    }
+  };
 
   const stats = useMemo(
     () => ({
@@ -875,6 +1057,134 @@ export default function AdminClient({
             ))}
           </ul>
         )}
+
+        {/* --- کلیدهای سرویس هوش مصنوعی --- */}
+        <section className="rounded-3xl border border-line bg-surface p-4 shadow-card sm:p-5">
+          <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
+            <div className="min-w-0">
+              <div className="flex items-center gap-2">
+                <span className="grid h-9 w-9 place-items-center rounded-xl bg-primary-soft text-primary">
+                  <KeyRound className="h-4 w-4" aria-hidden="true" />
+                </span>
+                <div>
+                  <h3 className="text-sm font-black">کلیدهای هوش مصنوعی</h3>
+                  <p className="mt-0.5 text-[10px] leading-5 text-ink-soft">
+                    پرسش مشتری هم‌زمان به همهٔ کلیدهای فعال فرستاده می‌شود و
+                    سریع‌ترین پاسخ معتبر به او نمایش داده می‌شود.
+                  </p>
+                </div>
+              </div>
+              {!racingEnabled && (
+                <p className="mt-2 rounded-xl border border-warning/30 bg-warning-soft px-2.5 py-2 text-[10px] font-bold leading-5 text-warning">
+                  <CircleAlert className="ml-1 inline h-3.5 w-3.5" aria-hidden="true" />
+                  فعلاً LLM_PROVIDER روی «mock» است؛ کلیدها فقط ذخیره می‌شوند و
+                  در پرسش‌ها شرکت نمی‌کنند.
+                </p>
+              )}
+            </div>
+            <button
+              type="button"
+              onClick={openKeyCreate}
+              className="inline-flex shrink-0 items-center justify-center gap-1.5 rounded-2xl border border-primary/40 bg-primary-soft px-3.5 py-2.5 text-[11px] font-bold text-primary transition-colors hover:bg-primary/15"
+            >
+              <Plus className="h-4 w-4" aria-hidden="true" />
+              افزودن کلید
+            </button>
+          </div>
+
+          {loadingKeys ? (
+            <p className="mt-3 flex items-center gap-1.5 text-[10px] text-ink-faint">
+              <LoaderCircle className="h-3.5 w-3.5 animate-spin" aria-hidden="true" />
+              در حال دریافت کلیدها…
+            </p>
+          ) : llmKeys.length === 0 ? (
+            <p className="mt-3 rounded-2xl border border-dashed border-line bg-surface-muted/40 p-4 text-center text-[10px] text-ink-faint">
+              هنوز کلیدی ثبت نشده؛ با «افزودن کلید» اولین سرویس را اضافه کنید.
+            </p>
+          ) : (
+            <ul className="mt-3 space-y-2">
+              {llmKeys.map((item) => (
+                <li
+                  key={item.id}
+                  className={cn(
+                    "flex flex-wrap items-center gap-2 rounded-2xl border border-line bg-surface-muted/40 px-3 py-2.5",
+                    !item.is_active && "opacity-70",
+                  )}
+                >
+                  <span
+                    className={cn(
+                      "h-2 w-2 shrink-0 rounded-full",
+                      item.is_active ? "bg-success" : "bg-ink-faint",
+                    )}
+                    aria-hidden="true"
+                  />
+                  <div className="min-w-0 flex-1">
+                    <p className="flex flex-wrap items-center gap-1.5 text-[11px] font-bold text-ink">
+                      {item.label || "بدون برچسب"}
+                      <span className="rounded-full bg-surface px-1.5 py-0.5 text-[9px] font-bold text-ink-soft" dir="ltr">
+                        {item.model || "مدل پیش‌فرض"}
+                      </span>
+                    </p>
+                    <p className="mt-0.5 truncate text-[9px] text-ink-faint" dir="ltr">
+                      {item.base_url} · {item.api_key_masked}
+                    </p>
+                  </div>
+                  <div className="flex shrink-0 items-center gap-1">
+                    <button
+                      type="button"
+                      onClick={() => void toggleKey(item)}
+                      disabled={keyBusy === item.id}
+                      aria-label={item.is_active ? "غیرفعال‌کردن کلید" : "فعال‌کردن کلید"}
+                      title={item.is_active ? "غیرفعال‌کردن" : "فعال‌کردن"}
+                      className={cn(
+                        "grid h-8 w-8 place-items-center rounded-xl border border-line bg-surface text-ink-soft transition-colors disabled:opacity-50",
+                        item.is_active
+                          ? "hover:border-warning/40 hover:text-warning"
+                          : "hover:border-success/40 hover:text-success",
+                      )}
+                    >
+                      {keyBusy === item.id ? (
+                        <LoaderCircle className="h-3.5 w-3.5 animate-spin" aria-hidden="true" />
+                      ) : (
+                        <Power className="h-3.5 w-3.5" aria-hidden="true" />
+                      )}
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => openKeyEdit(item)}
+                      aria-label={`ویرایش کلید ${item.label || ""}`}
+                      title="ویرایش کلید"
+                      className="grid h-8 w-8 place-items-center rounded-xl border border-line bg-surface text-ink-soft transition-colors hover:border-primary/40 hover:text-primary"
+                    >
+                      <Pencil className="h-3.5 w-3.5" aria-hidden="true" />
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => void confirmKeyDelete(item)}
+                      disabled={keyBusy === item.id}
+                      aria-label={`حذف کلید ${item.label || ""}`}
+                      title={pendingKeyDelete === item.id ? "دوباره بزنید تا حذف شود" : "حذف کلید"}
+                      className={cn(
+                        "grid h-8 w-8 place-items-center rounded-xl border text-[9px] font-bold transition-colors disabled:opacity-50",
+                        pendingKeyDelete === item.id
+                          ? "border-danger bg-danger-soft text-danger"
+                          : "border-line bg-surface text-ink-soft hover:border-danger/40 hover:text-danger",
+                      )}
+                    >
+                      {keyBusy === item.id ? (
+                        <LoaderCircle className="h-3.5 w-3.5 animate-spin" aria-hidden="true" />
+                      ) : pendingKeyDelete === item.id ? (
+                        "تایید؟"
+                      ) : (
+                        <Trash2 className="h-3.5 w-3.5" aria-hidden="true" />
+                      )}
+                    </button>
+                  </div>
+                </li>
+              ))}
+            </ul>
+          )}
+        </section>
       </main>
 
       {/* ساخت کافه */}
@@ -1065,6 +1375,121 @@ export default function AdminClient({
             </button>
           </div>
         </div>
+      </Modal>
+
+      {/* افزودن/ویرایش کلید هوش مصنوعی */}
+      <Modal
+        open={keyModalOpen}
+        onClose={() => !keySaving && setKeyModalOpen(false)}
+        labelledBy="llm-key-title"
+        className="sm:max-w-md"
+      >
+        <form onSubmit={submitKey} className="p-5">
+          <h2 id="llm-key-title" className="text-sm font-black">
+            {keyEditing ? "ویرایش کلید" : "افزودن کلید هوش مصنوعی"}
+          </h2>
+          <p className="mt-1 text-[10px] leading-5 text-ink-soft">
+            هر اتصال شامل نشانی سرویس، کلید API و مدل است؛ همهٔ سرویس‌های سازگار
+            با OpenAI پشتیبانی می‌شوند.
+          </p>
+
+          <div className="mt-4 space-y-3">
+            <div className="space-y-1.5">
+              <label htmlFor="key-label" className="text-[10px] font-bold text-ink-soft">
+                برچسب (اختیاری)
+              </label>
+              <input
+                id="key-label"
+                type="text"
+                value={keyForm.label}
+                onChange={(event) => setKeyForm((f) => ({ ...f, label: event.target.value }))}
+                maxLength={60}
+                disabled={keySaving}
+                placeholder="مثلاً: gapgpt"
+                className="w-full rounded-xl border border-line bg-surface-muted px-3 py-2.5 text-[11px] text-ink outline-none placeholder:text-ink-faint focus:border-primary focus:ring-4 focus:ring-primary/15 disabled:opacity-60"
+              />
+            </div>
+            <div className="space-y-1.5">
+              <label htmlFor="key-url" className="text-[10px] font-bold text-ink-soft">
+                نشانی سرویس (Base URL)
+              </label>
+              <input
+                id="key-url"
+                type="text"
+                required
+                value={keyForm.base_url}
+                onChange={(event) => setKeyForm((f) => ({ ...f, base_url: event.target.value }))}
+                maxLength={255}
+                disabled={keySaving}
+                placeholder="https://api.gapgpt.app/v1"
+                dir="ltr"
+                className="w-full rounded-xl border border-line bg-surface-muted px-3 py-2.5 text-left text-[11px] text-ink outline-none placeholder:text-ink-faint focus:border-primary focus:ring-4 focus:ring-primary/15 disabled:opacity-60"
+              />
+            </div>
+            <div className="space-y-1.5">
+              <label htmlFor="key-secret" className="text-[10px] font-bold text-ink-soft">
+                کلید API {keyEditing && "(خالی یعنی همان قبلی بماند)"}
+              </label>
+              <input
+                id="key-secret"
+                type="password"
+                required={!keyEditing}
+                value={keyForm.api_key}
+                onChange={(event) => setKeyForm((f) => ({ ...f, api_key: event.target.value }))}
+                maxLength={255}
+                disabled={keySaving}
+                placeholder="sk-..."
+                dir="ltr"
+                autoComplete="new-password"
+                className="w-full rounded-xl border border-line bg-surface-muted px-3 py-2.5 text-left text-[11px] text-ink outline-none placeholder:text-ink-faint focus:border-primary focus:ring-4 focus:ring-primary/15 disabled:opacity-60"
+              />
+            </div>
+            <div className="space-y-1.5">
+              <label htmlFor="key-model" className="text-[10px] font-bold text-ink-soft">
+                نام مدل (اختیاری)
+              </label>
+              <input
+                id="key-model"
+                type="text"
+                value={keyForm.model}
+                onChange={(event) => setKeyForm((f) => ({ ...f, model: event.target.value }))}
+                maxLength={100}
+                disabled={keySaving}
+                placeholder="gpt-4o-mini"
+                dir="ltr"
+                className="w-full rounded-xl border border-line bg-surface-muted px-3 py-2.5 text-left text-[11px] text-ink outline-none placeholder:text-ink-faint focus:border-primary focus:ring-4 focus:ring-primary/15 disabled:opacity-60"
+              />
+            </div>
+          </div>
+
+          {keyError && (
+            <p className="mt-3 flex items-start gap-1.5 rounded-xl border border-danger/25 bg-danger-soft px-2.5 py-2 text-[10px] font-bold leading-5 text-danger">
+              <CircleAlert className="mt-0.5 h-3.5 w-3.5 shrink-0" aria-hidden="true" />
+              {keyError}
+            </p>
+          )}
+
+          <div className="mt-4 flex gap-2">
+            <button
+              type="submit"
+              disabled={keySaving}
+              className="inline-flex flex-1 items-center justify-center gap-1.5 rounded-xl bg-primary px-4 py-2.5 text-[11px] font-bold text-on-primary transition-colors hover:bg-primary-strong disabled:opacity-50"
+            >
+              {keySaving && (
+                <LoaderCircle className="h-4 w-4 animate-spin" aria-hidden="true" />
+              )}
+              ذخیره
+            </button>
+            <button
+              type="button"
+              onClick={() => setKeyModalOpen(false)}
+              disabled={keySaving}
+              className="rounded-xl border border-line bg-surface px-4 py-2.5 text-[11px] font-bold text-ink-soft transition-colors hover:bg-surface-muted disabled:opacity-50"
+            >
+              انصراف
+            </button>
+          </div>
+        </form>
       </Modal>
 
       <ToastViewport toasts={toasts} onDismiss={dismiss} />

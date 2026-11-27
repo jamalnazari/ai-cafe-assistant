@@ -106,21 +106,28 @@ class AssistantService:
         menu: RestaurantMenu,
         question: str,
         history: list[ConversationTurn] | None = None,
+        llm_provider=None,
     ) -> str:
+        """پاسخ متنی؛ اگر llm_provider داده شود (مثلاً مسابقهٔ چند کلیدی) از همان
+        استفاده می‌شود، وگرنه فراهم‌کنندهٔ پیش‌فرض .env."""
         system_prompt = self._build_system_prompt(menu)
         recent_turns = (history or [])[-MAX_CONVERSATION_TURNS:]
         previous_turns = [
             (turn.question, turn.answer) for turn in recent_turns
         ]
-        return await self.llm_provider.generate_response(
+        provider = llm_provider or self.llm_provider
+        return await provider.generate_response(
             system_prompt, question, previous_turns
         )
 
     async def answer_voice_question(
-        self, menu: RestaurantMenu, audio_bytes: bytes, filename: str
+        self, menu: RestaurantMenu, audio_bytes: bytes, filename: str,
+        llm_provider=None,
     ) -> tuple[str, str]:
         # ۱. تبدیل صدا به متن
         transcript = await self.stt_provider.transcribe(audio_bytes, filename)
         # ۲. پاسخ به متن استخراج شده
-        answer = await self.answer_text_question(menu, transcript)
+        answer = await self.answer_text_question(
+            menu, transcript, llm_provider=llm_provider
+        )
         return transcript, answer

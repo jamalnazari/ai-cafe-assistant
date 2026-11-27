@@ -25,6 +25,21 @@ export type AdminRestaurant = {
 
 export type CafeFaq = { question: string; answer: string };
 
+/** یک اتصال سرویس هوش مصنوعی؛ کلید فقط به شکل ماسک‌شده نمایش داده می‌شود. */
+export type LlmApiKey = {
+  id: number;
+  label: string | null;
+  base_url: string;
+  model: string | null;
+  api_key_masked: string;
+  is_active: boolean;
+};
+
+export type LlmKeysList = {
+  keys: LlmApiKey[];
+  racing_enabled: boolean;
+};
+
 export const LABEL_SUGGESTIONS = [
   "کافه",
   "رستوران",

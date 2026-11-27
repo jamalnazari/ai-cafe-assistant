@@ -1,4 +1,5 @@
 import asyncio
+import logging
 from sqlalchemy import func, inspect, select, text
 from sqlalchemy.ext.asyncio import AsyncSession
 from app.db.session import engine, Base, AsyncSessionLocal
@@ -7,6 +8,7 @@ from app.models.menu import MenuItemModel
 from app.models.menu_category import MenuCategoryModel
 from app.models.user import UserModel
 from app.models.auth_session import AuthSessionModel  # noqa: F401 - ثبت مدل در metadata
+from app.models.llm_api_key import LlmApiKeyModel
 from app.core.config import DEFAULT_ADMIN_USERNAME, settings
 from app.core.identity import placeholder_email
 from app.core.security import hash_password
@@ -15,6 +17,8 @@ from app.services.branding_image_service import (
     SAMPLE_LOGO_FILE,
     branding_image_service,
 )
+
+logger = logging.getLogger("cafe.init_db")
 
 
 async def backfill_menu_categories(session: AsyncSession) -> None:
@@ -421,6 +425,85 @@ async def link_orphan_owners(session: AsyncSession) -> None:
         owner.restaurant_id = first_restaurant.id
 
 
+def parse_env_text(text_content: str) -> list[tuple[str, str, str | None]]:
+    """استخراج اتصال‌های LLM از متن یک فایل .env (حتی خطوط کامنت‌شده).
+
+    هر بلوک «AI_BASE_URL + AI_API_KEY + LLM_MODEL» یک اتصال است؛ مقدار اصلی
+    هر فیلد همان متن پیش از «#» است و کلیدِ بی base_url نادیده گرفته می‌شود.
+    """
+    entries: list[tuple[str, str, str | None]] = []
+    seen: set[tuple[str, str]] = set()
+
+    base_url: str | None = None
+    model: str | None = None
+    for raw_line in text_content.splitlines():
+        # خط کامنت‌شده هم پیکربندی ثبت‌شده است؛ علامت # ابتدا برداشته می‌شود.
+        line = raw_line.strip()
+        if line.startswith("#"):
+            line = line[1:].strip()
+        if not line or "=" not in line:
+            continue
+        key, _, value = line.partition("=")
+        key = key.strip()
+        # مقدار اصلی، قبل از کامنتِ انتهایی
+        value = value.split("#", 1)[0].strip()
+        if not value:
+            continue
+        if key == "AI_BASE_URL":
+            base_url = value.rstrip("/")
+        elif key == "LLM_MODEL":
+            model = value
+        elif key == "AI_API_KEY":
+            if base_url and value != "mock-key" and (base_url, value) not in seen:
+                seen.add((base_url, value))
+                entries.append((base_url, value, model))
+
+    return entries
+
+
+def parse_env_llm_entries() -> list[tuple[str, str, str | None]]:
+    """خواندن همهٔ فایل‌های .env پروژه و ادغام اتصال‌های یافت‌شده."""
+    from app.core.config import API_DIR, BASE_DIR
+
+    env_paths = [BASE_DIR / ".env", API_DIR / ".env"]
+    entries: list[tuple[str, str, str | None]] = []
+    seen: set[tuple[str, str]] = set()
+    for path in env_paths:
+        try:
+            text_content = path.read_text(encoding="utf-8")
+        except OSError:
+            continue
+        for base_url, api_key, model in parse_env_text(text_content):
+            if (base_url, api_key) not in seen:
+                seen.add((base_url, api_key))
+                entries.append((base_url, api_key, model))
+    return entries
+
+
+async def seed_llm_keys_from_env(session: AsyncSession) -> None:
+    """نمایش اولیهٔ کلیدهای .env در پنل؛ فقط یک‌بار وقتی جدول خالی است."""
+    count = await session.scalar(select(func.count(LlmApiKeyModel.id)))
+    if count:
+        return
+
+    entries = parse_env_llm_entries()
+    if not entries:
+        return
+
+    for base_url, api_key, model in entries:
+        session.add(
+            LlmApiKeyModel(
+                label=None,
+                base_url=base_url,
+                api_key=api_key,
+                model=model,
+                is_active=True,
+            )
+        )
+    await session.commit()
+    logger.info("تعداد %s کلید هوش مصنوعی از .env به پنل اضافه شد", len(entries))
+
+
 async def init_db():
     print("در حال به‌روزرسانی جدول‌ها در SQLite...")
     async with engine.begin() as conn:
@@ -507,6 +590,7 @@ async def init_db():
         await apply_sample_branding(session)
         await ensure_admin_user(session)
         await link_orphan_owners(session)
+        await seed_llm_keys_from_env(session)
         await session.commit()
 
 

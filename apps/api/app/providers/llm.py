@@ -1,5 +1,6 @@
 import asyncio
 import logging
+import time
 from typing import Protocol
 
 import httpx
@@ -10,6 +11,10 @@ logger = logging.getLogger("cafe.llm")
 
 # خطاهایی که تلاش دوباره فایده‌ای ندارد (کلید/مدل/درخواست اشتباه است).
 NON_RETRYABLE_STATUS_CODES = {400, 401, 403, 404, 422}
+
+# سقف سراسری تماس‌های هم‌زمان خروجی LLM؛ با چند مشتری هم‌زمان، هر پرسش چند
+# کلید را رقابت می‌دهد و بدون سقف، هزینه/فشار سرویس کنترل‌نشده می‌شود.
+_llm_call_semaphore = asyncio.Semaphore(settings.AI_MAX_CONCURRENT_LLM_CALLS)
 
 
 class LLMUnavailableError(RuntimeError):
@@ -133,26 +138,99 @@ class OpenAICompatibleLLMProvider:
         ) from last_error
 
     async def _request(self, payload: dict) -> str:
-        async with httpx.AsyncClient(timeout=self.timeout_seconds) as client:
-            response = await client.post(
-                f"{self.base_url}/chat/completions",
-                headers={
-                    "Authorization": f"Bearer {self.api_key}",
-                    "Content-Type": "application/json",
-                },
-                json=payload,
+        async with _llm_call_semaphore:
+            async with httpx.AsyncClient(timeout=self.timeout_seconds) as client:
+                response = await client.post(
+                    f"{self.base_url}/chat/completions",
+                    headers={
+                        "Authorization": f"Bearer {self.api_key}",
+                        "Content-Type": "application/json",
+                    },
+                    json=payload,
+                )
+                response.raise_for_status()
+                result = response.json()
+                message = result["choices"][0]["message"]
+                content = message.get("content")
+                if not isinstance(content, str) or not content.strip():
+                    # بعضی مدل‌های استدلالی (مثل DeepSeek) پاسخ را در reasoning_content
+                    # می‌گذارند و content را خالی برمی‌گردانند.
+                    content = message.get("reasoning_content")
+                if not isinstance(content, str) or not content.strip():
+                    raise ValueError("پاسخ خالی از سرویس هوش مصنوعی")
+                return content.strip()
+
+
+class RacingLLMProvider:
+    """پرسش را هم‌زمان به چند فراهم‌کننده می‌فرستد؛ سریع‌ترین پاسخِ معتبر برنده است.
+
+    هر پرسش مسابقهٔ مستقل خودش را دارد (بدون وضعیت مشترک)، پس چند مشتریِ
+    هم‌زمان روی هم اثر نمی‌گذارند. اگر سریع‌ترین کلید خطا بدهد (مثلاً ۴۰۱)،
+    منتظر بقیه می‌مانیم تا نخستین پاسخ «معتبر» برگردد.
+    """
+
+    def __init__(self, providers: list[LLMProvider], labels: list[str] | None = None):
+        self.providers = providers
+        self.labels = labels or [f"provider-{index + 1}" for index in range(len(providers))]
+
+    async def generate_response(
+        self,
+        system_prompt: str,
+        user_question: str,
+        history: list[tuple[str, str]] | None = None,
+    ) -> str:
+        if not self.providers:
+            raise LLMUnavailableError("هیچ کلید فعالی برای سرویس هوش مصنوعی ثبت نشده است.")
+        if len(self.providers) == 1:
+            return await self.providers[0].generate_response(
+                system_prompt, user_question, history
             )
-            response.raise_for_status()
-            result = response.json()
-            message = result["choices"][0]["message"]
-            content = message.get("content")
-            if not isinstance(content, str) or not content.strip():
-                # بعضی مدل‌های استدلالی (مثل DeepSeek) پاسخ را در reasoning_content
-                # می‌گذارند و content را خالی برمی‌گردانند.
-                content = message.get("reasoning_content")
-            if not isinstance(content, str) or not content.strip():
-                raise ValueError("پاسخ خالی از سرویس هوش مصنوعی")
-            return content.strip()
+
+        started = time.monotonic()
+        tasks = {
+            asyncio.create_task(
+                provider.generate_response(system_prompt, user_question, history)
+            ): self.labels[index]
+            for index, provider in enumerate(self.providers)
+        }
+        pending = set(tasks)
+        last_error: Exception | None = None
+
+        try:
+            while pending:
+                done, pending = await asyncio.wait(
+                    pending, return_when=asyncio.FIRST_COMPLETED
+                )
+                for task in done:
+                    label = tasks[task]
+                    try:
+                        answer = task.result()
+                    except asyncio.CancelledError:
+                        raise
+                    except Exception as error:  # noqa: BLE001 - برندهٔ شکست‌خورده؛ بقیه ادامه می‌دهند
+                        last_error = error
+                        logger.warning(
+                            "کلید %s در مسابقهٔ پاسخ شکست خورد: %s", label, error
+                        )
+                        continue
+                    elapsed = time.monotonic() - started
+                    logger.info(
+                        "پاسخ دستیار از کلید %s برنده شد (%.2fs، رقابت بین %s کلید)",
+                        label,
+                        elapsed,
+                        len(tasks),
+                    )
+                    return answer
+        finally:
+            # لغو همهٔ رقبا؛ اعم از برنده شدن، شکست همه یا CancelledError خود پرسش
+            for task in tasks:
+                if not task.done():
+                    task.cancel()
+            await asyncio.gather(*tasks, return_exceptions=True)
+
+        raise LLMUnavailableError(
+            "هیچ‌کدام از کلیدهای سرویس هوش مصنوعی پاسخ معتبری برنگرداندند."
+        ) from last_error
 
 
 def get_llm_provider() -> LLMProvider:
@@ -163,3 +241,27 @@ def get_llm_provider() -> LLMProvider:
         api_key=settings.AI_API_KEY,
         model=settings.LLM_MODEL,
     )
+
+
+def build_racing_provider(rows) -> LLMProvider:
+    """ساخت فراهم‌کنندهٔ مسابقه از ردیف‌های فعال جدول llm_api_keys.
+
+    rows: هر آیتم یک تاپل (label, base_url, api_key, model)؛ model خالی یعنی
+    استفاده از LLM_MODEL فایل .env. اگر هیچ ردیفی نباشد، تنظیمات .env برمی‌گردد.
+    """
+    providers: list[LLMProvider] = []
+    labels: list[str] = []
+    for label, base_url, api_key, model in rows:
+        providers.append(
+            OpenAICompatibleLLMProvider(
+                base_url=base_url,
+                api_key=api_key,
+                model=model or settings.LLM_MODEL,
+            )
+        )
+        labels.append(label or base_url)
+    if not providers:
+        return get_llm_provider()
+    if len(providers) == 1:
+        return providers[0]
+    return RacingLLMProvider(providers, labels)

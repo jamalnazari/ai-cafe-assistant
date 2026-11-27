@@ -23,9 +23,15 @@ from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
-from app.db.init_db import ensure_admin_user, ensure_schema_columns, link_orphan_owners
+from app.db.init_db import (
+    ensure_admin_user,
+    ensure_schema_columns,
+    link_orphan_owners,
+    seed_llm_keys_from_env,
+)
 from app.db.session import AsyncSessionLocal, engine, get_db
 from app.models.auth_session import AuthSessionModel
+from app.models.llm_api_key import LlmApiKeyModel
 from app.models.restaurant import RestaurantModel
 from app.models.menu import MenuItemModel
 from app.models.menu_category import MenuCategoryModel
@@ -42,7 +48,7 @@ from app.core.auth import (
     set_session_cookie,
 )
 from app.core.rate_limit import enforce_ask_rate_limit, enforce_login_rate_limit
-from app.providers.llm import LLMUnavailableError
+from app.providers.llm import LLMUnavailableError, build_racing_provider
 from app.repositories.menu_repository import SqlAlchemyMenuRepository
 from app.schemas.admin import (
     AdminMessage,
@@ -53,6 +59,12 @@ from app.schemas.admin import (
 from app.schemas.auth import LoginRequest, LoginResponse, OwnerResponse
 from app.schemas.contact import PublicRestaurant, RestaurantProfileOut
 from app.schemas.chat import TextQuestionRequest
+from app.schemas.llm_keys import (
+    LlmKeyCreate,
+    LlmKeyOut,
+    LlmKeyUpdate,
+    LlmKeysListOut,
+)
 from app.schemas.menu import (
     MenuCategoryCreate,
     RestaurantUpdate,
@@ -107,7 +119,7 @@ async def apply_schema_updates() -> None:
 
 async def ensure_initial_data() -> None:
     """حساب مدیر و اتصال کاربران قدیمی به کافه‌شان را در استارتاپ تضمین می‌کند."""
-    steps = (ensure_admin_user, link_orphan_owners)
+    steps = (ensure_admin_user, link_orphan_owners, seed_llm_keys_from_env)
     for step in steps:
         async with AsyncSessionLocal() as session:
             try:
@@ -843,8 +855,9 @@ async def ask_text_question(
         raise HTTPException(status_code=404, detail="کافه یافت نشد.")
 
     try:
+        provider = await build_question_provider(db)
         answer = await assistant_service.answer_text_question(
-            menu, body.question, body.history
+            menu, body.question, body.history, llm_provider=provider
         )
     except LLMUnavailableError as exc:
         logger.warning("دستیار نتوانست پاسخ تولید کند: %s", exc)
@@ -888,8 +901,10 @@ async def ask_voice_question(
         )
 
     try:
+        provider = await build_question_provider(db)
         transcript, answer = await assistant_service.answer_voice_question(
-            menu, audio_bytes, file.filename or "audio.webm"
+            menu, audio_bytes, file.filename or "audio.webm",
+            llm_provider=provider,
         )
     except HTTPException:
         raise
@@ -924,6 +939,139 @@ def slugify_value(value: str) -> str:
     if len(slug) < 3:
         slug = f"cafe-{slug}".strip("-")
     return slug[:40]
+
+
+def mask_api_key(value: str) -> str:
+    """نمایش امن کلید: چند نویسهٔ اول و آخر؛ مقدار کامل هرگز به مرورگر نمی‌رود."""
+    cleaned = value.strip()
+    if len(cleaned) <= 12:
+        return "…" + cleaned[-4:]
+    return f"{cleaned[:8]}…{cleaned[-4:]}"
+
+
+async def build_question_provider(db: AsyncSession):
+    """فراهم‌کنندهٔ پرسش: اگر کلید فعال در پنل ثبت شده باشد، مسابقهٔ چند کلیدی؛
+    وگرنه فراهم‌کنندهٔ پیش‌فرض سرویس (که از .env ساخته می‌شود و در تست‌ها
+    قابل تعویض است)."""
+    if settings.LLM_PROVIDER != "mock":
+        rows = (
+            await db.execute(
+                select(
+                    LlmApiKeyModel.label,
+                    LlmApiKeyModel.base_url,
+                    LlmApiKeyModel.api_key,
+                    LlmApiKeyModel.model,
+                )
+                .where(LlmApiKeyModel.is_active.is_(True))
+                .order_by(LlmApiKeyModel.created_at, LlmApiKeyModel.id)
+            )
+        ).all()
+        if rows:
+            return build_racing_provider(rows)
+    return assistant_service.llm_provider
+
+
+@app.get("/api/v1/admin/llm-keys", response_model=LlmKeysListOut)
+async def admin_list_llm_keys(
+    db: AsyncSession = Depends(get_db),
+    _admin: UserModel = Depends(get_current_admin),
+) -> LlmKeysListOut:
+    rows = (
+        await db.execute(
+            select(LlmApiKeyModel).order_by(LlmApiKeyModel.created_at, LlmApiKeyModel.id)
+        )
+    ).scalars().all()
+    return LlmKeysListOut(
+        keys=[
+            LlmKeyOut(
+                id=row.id,
+                label=row.label,
+                base_url=row.base_url,
+                model=row.model,
+                api_key_masked=mask_api_key(row.api_key),
+                is_active=row.is_active,
+            )
+            for row in rows
+        ],
+        racing_enabled=settings.LLM_PROVIDER != "mock",
+    )
+
+
+@app.post("/api/v1/admin/llm-keys", response_model=LlmKeyOut)
+async def admin_create_llm_key(
+    body: LlmKeyCreate,
+    db: AsyncSession = Depends(get_db),
+    _admin: UserModel = Depends(get_current_admin),
+) -> LlmKeyOut:
+    count = await db.scalar(select(func.count(LlmApiKeyModel.id)))
+    if (count or 0) >= settings.AI_MAX_LLM_KEYS:
+        raise HTTPException(
+            status_code=400,
+            detail=f"حداکثر {settings.AI_MAX_LLM_KEYS} کلید می‌توان ثبت کرد؛ ابتدا یکی را حذف کنید.",
+        )
+    row = LlmApiKeyModel(
+        label=body.label,
+        base_url=body.base_url,
+        api_key=body.api_key,
+        model=body.model,
+        is_active=True,
+    )
+    db.add(row)
+    await db.commit()
+    await db.refresh(row)
+    return LlmKeyOut(
+        id=row.id,
+        label=row.label,
+        base_url=row.base_url,
+        model=row.model,
+        api_key_masked=mask_api_key(row.api_key),
+        is_active=row.is_active,
+    )
+
+
+@app.patch("/api/v1/admin/llm-keys/{key_id}", response_model=LlmKeyOut)
+async def admin_update_llm_key(
+    key_id: int,
+    body: LlmKeyUpdate,
+    db: AsyncSession = Depends(get_db),
+    _admin: UserModel = Depends(get_current_admin),
+) -> LlmKeyOut:
+    row = await db.get(LlmApiKeyModel, key_id)
+    if row is None:
+        raise HTTPException(status_code=404, detail="کلید یافت نشد.")
+
+    updates = body.model_dump(exclude_unset=True)
+    if not updates:
+        raise HTTPException(status_code=400, detail="فیلدی برای ویرایش ارسال نشده است.")
+    if updates.get("api_key") in (None, ""):
+        # ارسال خالیِ api_key یعنی همان کلید قبلی بماند.
+        updates.pop("api_key", None)
+    for field_name, value in updates.items():
+        setattr(row, field_name, value)
+    await db.commit()
+    await db.refresh(row)
+    return LlmKeyOut(
+        id=row.id,
+        label=row.label,
+        base_url=row.base_url,
+        model=row.model,
+        api_key_masked=mask_api_key(row.api_key),
+        is_active=row.is_active,
+    )
+
+
+@app.delete("/api/v1/admin/llm-keys/{key_id}")
+async def admin_delete_llm_key(
+    key_id: int,
+    db: AsyncSession = Depends(get_db),
+    _admin: UserModel = Depends(get_current_admin),
+) -> dict[str, str]:
+    row = await db.get(LlmApiKeyModel, key_id)
+    if row is None:
+        raise HTTPException(status_code=404, detail="کلید یافت نشد.")
+    await db.delete(row)
+    await db.commit()
+    return {"message": "کلید حذف شد."}
 
 
 async def unique_restaurant_slug(

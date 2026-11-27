@@ -76,6 +76,12 @@ class Settings(BaseSettings):
     AI_MAX_RETRIES: int = 2
     # دمای پایین تا دستیار از خودش چیزی نسازد.
     AI_TEMPERATURE: float = 0.2
+    # رقابت چند کلیدی: پرسشِ هر مشتری هم‌زمان به همهٔ کلیدهای فعال می‌رود و
+    # سریع‌ترین پاسخ معتبر برمی‌گردد؛ این سقف، مجموع تماس‌های هم‌زمان خروجی را
+    # محدود می‌کند تا چند مشتریِ هم‌زمان سرویس را تحت فشار نگذارند.
+    AI_MAX_CONCURRENT_LLM_CALLS: int = 24
+    # حداکثر تعداد کلید ثبت‌شده در پنل (کنترل هزینه)
+    AI_MAX_LLM_KEYS: int = 12
 
     model_config = SettingsConfigDict(
         env_file=(str(BASE_DIR / ".env"), str(API_DIR / ".env")),
