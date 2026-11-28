@@ -17,12 +17,15 @@ type MenuCategoryNavProps = {
   active: string | null;
   onSelect: (categoryName: string | null) => void;
   navRef: React.RefObject<HTMLElement | null>;
-  tone?: "canvas" | "surface";
+  /** canvas/surface نوار پشت‌زمینه دارد؛ none یعنی فقط چیپ‌ها بدون کادر */
+  tone?: "canvas" | "surface" | "none";
   className?: string;
   containerClassName?: string;
   topClassName?: string;
   action?: React.ReactNode;
   sticky?: boolean;
+  /** برچسب «دسته‌ها» کنار چیپ‌ها (فقط در نمایشگر بزرگ دیده می‌شود) */
+  showLabel?: boolean;
 };
 
 const ALL_KEY = "__all__";
@@ -39,6 +42,7 @@ export default function MenuCategoryNav({
   topClassName = "top-0",
   action,
   sticky = true,
+  showLabel = true,
 }: MenuCategoryNavProps) {
   const chipRefs = useRef(new Map<string, HTMLButtonElement>());
 
@@ -95,10 +99,15 @@ export default function MenuCategoryNav({
       ref={navRef}
       aria-label="دسته‌بندی‌های منو"
       className={cn(
-        "z-30 border-b border-line/70 backdrop-blur-xl",
+        "z-30",
+        tone !== "none" && "border-b border-line/70 backdrop-blur-xl",
         sticky && "sticky",
         sticky && topClassName,
-        tone === "canvas" ? "bg-canvas/85" : "bg-surface/90",
+        tone === "canvas"
+          ? "bg-canvas/85"
+          : tone === "surface"
+            ? "bg-surface/90"
+            : "",
         className,
       )}
     >
@@ -108,10 +117,12 @@ export default function MenuCategoryNav({
           containerClassName ?? "mx-auto max-w-5xl px-4",
         )}
       >
-        <span className="hidden shrink-0 items-center gap-1.5 pe-1 text-[10px] font-bold uppercase tracking-wide text-ink-faint lg:flex">
-          <LayoutGrid className="h-3.5 w-3.5" aria-hidden="true" />
-          دسته‌ها
-        </span>
+        {showLabel && (
+          <span className="hidden shrink-0 items-center gap-1.5 pe-1 text-[10px] font-bold uppercase tracking-wide text-ink-faint lg:flex">
+            <LayoutGrid className="h-3.5 w-3.5" aria-hidden="true" />
+            دسته‌ها
+          </span>
+        )}
         <div className="no-scrollbar flex min-w-0 flex-1 items-center gap-2 overflow-x-auto py-0.5">
           {renderChip(
             ALL_KEY,

@@ -153,9 +153,9 @@ export default function CustomerMenu({
         active={activeCategory}
         onSelect={scrollToCategory}
         navRef={navRef}
-        tone="canvas"
+        tone="none"
+        showLabel={false}
         topClassName="top-16"
-        className="border-b border-line/60 shadow-[0_8px_24px_-20px_rgba(0,0,0,0.45)]"
       />
 
       <main className="relative z-10 mx-auto max-w-5xl px-4 pt-5 pb-10">
