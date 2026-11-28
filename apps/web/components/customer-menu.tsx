@@ -311,7 +311,8 @@ export default function CustomerMenu({
                 پاسخ در گفتگو نمایش داده می‌شود
               </span>
             </div>
-            <div className="relative">
+            <div className="relative rounded-2xl border border-dashed border-primary/45 bg-surface shadow-sm outline-none transition-all focus-within:border-primary focus-within:ring-4 focus-within:ring-primary/15">
+              <span aria-hidden="true" className="chat-orbit-dot" />
               <input
                 id="menu-question"
                 type="text"
@@ -321,7 +322,7 @@ export default function CustomerMenu({
                 maxLength={2000}
                 autoComplete="off"
                 enterKeyHint="send"
-                className="w-full rounded-2xl border border-line bg-surface py-3 pl-12 pr-3.5 text-xs text-ink shadow-sm outline-none transition-all placeholder:text-ink-faint focus:border-primary focus:ring-4 focus:ring-primary/15"
+                className="w-full rounded-2xl bg-transparent py-3 pl-12 pr-3.5 text-xs text-ink outline-none placeholder:text-ink-faint"
               />
               <button
                 type="submit"
