@@ -92,6 +92,14 @@ export default function MenuChat({
       <p className="mt-1.5 text-sm text-ink-soft">
         چطور میتونم کمکتون کنم
       </p>
+      <button
+        type="button"
+        onClick={onOpenMenu}
+        className="mt-5 inline-flex items-center gap-2 rounded-full bg-primary px-6 py-3 text-xs font-black text-on-primary shadow-md shadow-primary/25 transition-colors hover:bg-primary-strong"
+      >
+        <BookOpen className="h-4 w-4" aria-hidden="true" />
+        دیدن منو
+      </button>
     </div>
   );
 
@@ -146,19 +154,21 @@ export default function MenuChat({
         </div>
       </header>
 
-      {/* نوار همیشگی «دیدن منو» زیر هدر؛ با اسکرول چت هم محو نمی‌شود */}
-      <div className="sticky top-16 z-30 border-b border-line/40 bg-canvas/70 backdrop-blur-lg">
-        <div className="mx-auto max-w-3xl px-4 py-2">
-          <button
-            type="button"
-            onClick={onOpenMenu}
-            className="inline-flex w-full items-center justify-center gap-1.5 rounded-xl border border-primary/25 bg-primary-soft px-3 py-2 text-[11px] font-bold text-primary transition-colors hover:bg-primary/15"
-          >
-            <BookOpen className="h-4 w-4" aria-hidden="true" />
-            دیدن منو
-          </button>
+      {/* بعد از شروع چت: دکمهٔ کوچک «دیدن منو» همیشه زیر هدر */}
+      {!isWelcome && (
+        <div className="sticky top-16 z-30 border-b border-line/40 bg-canvas/70 backdrop-blur-lg">
+          <div className="mx-auto flex max-w-3xl justify-center px-4 py-2">
+            <button
+              type="button"
+              onClick={onOpenMenu}
+              className="inline-flex items-center gap-1.5 rounded-full border border-primary/25 bg-primary-soft px-4 py-1.5 text-[11px] font-bold text-primary transition-colors hover:bg-primary/15"
+            >
+              <BookOpen className="h-3.5 w-3.5" aria-hidden="true" />
+              دیدن منو
+            </button>
+          </div>
         </div>
-      </div>
+      )}
 
       <main className="relative z-10 mx-auto flex w-full max-w-3xl flex-1 flex-col px-4 pb-40 pt-5">
         {isWelcome ? (
@@ -290,8 +300,7 @@ export default function MenuChat({
       </main>
 
       <div className="fixed inset-x-0 bottom-2 z-40 px-3 pb-[max(1rem,env(safe-area-inset-bottom))] pt-2">
-        <div className="relative mx-auto w-full max-w-3xl rounded-[32px] border border-dashed border-primary/45 p-4 backdrop-blur-xl">
-          <span aria-hidden="true" className="chat-orbit-dot" />
+        <div className="chat-glow-border relative mx-auto w-full max-w-3xl rounded-[32px] border border-dashed border-primary/45 p-4 backdrop-blur-xl">
           <form onSubmit={handleSubmit} className="flex items-center gap-2">
             <input
               type="text"

@@ -15,7 +15,6 @@ import {
   Salad,
   Sandwich,
   Send,
-  Sparkles,
   UtensilsCrossed,
 } from "lucide-react";
 
@@ -90,7 +89,7 @@ export default function CustomerMenu({
   };
 
   return (
-    <div className="relative min-h-screen pb-44">
+    <div className="relative min-h-screen pb-40">
       {menu.background_url && (
         <div aria-hidden="true" className="pointer-events-none fixed inset-0 z-0">
           <Image
@@ -290,49 +289,30 @@ export default function CustomerMenu({
         </div>
       </main>
 
-      <div className="fixed inset-x-0 bottom-2 z-30 border-t border-line/60 bg-canvas/90 backdrop-blur-xl">
-        <div
-          className="mx-auto w-full max-w-5xl px-4 pt-2.5"
-          style={{ paddingBottom: "max(0.75rem, env(safe-area-inset-bottom))" }}
-        >
-          <form onSubmit={handleAsk} className="space-y-1.5">
-            <div className="flex items-center justify-between gap-2">
-              <label
-                htmlFor="menu-question"
-                className="flex items-center gap-1 text-[10px] font-bold text-ink-faint"
-              >
-                <Sparkles
-                  className="h-3 w-3 text-primary"
-                  aria-hidden="true"
-                />
-                دربارهٔ منو بپرس
-              </label>
-              <span className="text-[9px] text-ink-faint">
-                پاسخ در گفتگو نمایش داده می‌شود
-              </span>
-            </div>
-            <div className="relative rounded-2xl border border-dashed border-primary/45 bg-surface shadow-sm outline-none transition-all focus-within:border-primary focus-within:ring-4 focus-within:ring-primary/15">
-              <span aria-hidden="true" className="chat-orbit-dot" />
-              <input
-                id="menu-question"
-                type="text"
-                value={question}
-                onChange={(event) => setQuestion(event.target.value)}
-                placeholder="مثلاً: کدام دسر بدون گلوتن است؟"
-                maxLength={2000}
-                autoComplete="off"
-                enterKeyHint="send"
-                className="w-full rounded-2xl bg-transparent py-3 pl-12 pr-3.5 text-xs text-ink outline-none placeholder:text-ink-faint"
-              />
-              <button
-                type="submit"
-                disabled={!question.trim()}
-                aria-label="ارسال سؤال"
-                className="absolute left-1.5 top-1.5 grid h-9 w-9 place-items-center rounded-xl bg-primary text-on-primary transition-colors hover:bg-primary-strong disabled:cursor-not-allowed disabled:opacity-40"
-              >
-                <Send className="h-4 w-4" aria-hidden="true" />
-              </button>
-            </div>
+      {/* کادر پرسش؛ دقیقاً مثل کادر چت صفحهٔ اول */}
+      <div className="fixed inset-x-0 bottom-2 z-30 px-3 pb-[max(1rem,env(safe-area-inset-bottom))] pt-2">
+        <div className="chat-glow-border relative mx-auto w-full max-w-3xl rounded-[32px] border border-dashed border-primary/45 p-4 backdrop-blur-xl">
+          <form onSubmit={handleAsk} className="flex items-center gap-2">
+            <input
+              id="menu-question"
+              type="text"
+              value={question}
+              onChange={(event) => setQuestion(event.target.value)}
+              placeholder="سؤالت را دربارهٔ منو بنویس..."
+              maxLength={2000}
+              autoComplete="off"
+              enterKeyHint="send"
+              aria-label="سؤال درباره منو"
+              className="min-w-0 flex-1 bg-transparent px-3 py-6 text-sm text-ink outline-none placeholder:text-ink-faint"
+            />
+            <button
+              type="submit"
+              disabled={!question.trim()}
+              aria-label="ارسال سؤال"
+              className="grid h-14 w-14 shrink-0 place-items-center rounded-full bg-primary text-on-primary shadow-md shadow-primary/25 transition-colors hover:bg-primary-strong disabled:cursor-not-allowed disabled:opacity-40"
+            >
+              <Send className="h-5 w-5" aria-hidden="true" />
+            </button>
           </form>
         </div>
       </div>
