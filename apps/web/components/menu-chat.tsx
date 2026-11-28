@@ -154,19 +154,17 @@ export default function MenuChat({
         </div>
       </header>
 
-      {/* بعد از شروع چت: دکمهٔ کوچک «دیدن منو» همیشه زیر هدر */}
+      {/* بعد از شروع چت: فقط دکمهٔ کوچک «دیدن منو»، شناور زیر هدر (بدون نوار) */}
       {!isWelcome && (
-        <div className="sticky top-16 z-30 border-b border-line/40 bg-canvas/70 backdrop-blur-lg">
-          <div className="mx-auto flex max-w-3xl justify-center px-4 py-2">
-            <button
-              type="button"
-              onClick={onOpenMenu}
-              className="inline-flex items-center gap-1.5 rounded-full border border-primary/25 bg-primary-soft px-4 py-1.5 text-[11px] font-bold text-primary transition-colors hover:bg-primary/15"
-            >
-              <BookOpen className="h-3.5 w-3.5" aria-hidden="true" />
-              دیدن منو
-            </button>
-          </div>
+        <div className="pointer-events-none sticky top-[4.25rem] z-30 flex justify-center px-4">
+          <button
+            type="button"
+            onClick={onOpenMenu}
+            className="pointer-events-auto inline-flex items-center gap-1.5 rounded-full border border-primary/25 bg-primary-soft px-4 py-1.5 text-[11px] font-bold text-primary shadow-sm transition-colors hover:bg-primary/15"
+          >
+            <BookOpen className="h-3.5 w-3.5" aria-hidden="true" />
+            دیدن منو
+          </button>
         </div>
       )}
 
