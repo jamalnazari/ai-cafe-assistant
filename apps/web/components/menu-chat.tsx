@@ -123,7 +123,8 @@ export default function MenuChat({
           <div className="absolute inset-0 bg-gradient-to-b from-canvas/85 via-canvas/20 to-canvas/80" />
         </div>
       )}
-      <header className="sticky top-0 z-40 backdrop-blur-xl">
+      {/* هدر کاملاً شفاف؛ فقط لوگو، نام مجموعه و همبرگر شناور روی صفحه */}
+      <header className="sticky top-0 z-40">
         <div className="mx-auto flex h-16 max-w-3xl items-center justify-between gap-3 px-4">
           <div className="flex min-w-0 items-center gap-2.5">
             <span className="relative grid h-10 w-10 shrink-0 place-items-center overflow-hidden rounded-2xl bg-primary text-on-primary shadow-md shadow-primary/25">
